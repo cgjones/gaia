@@ -4,7 +4,11 @@
  * This is Music Application of Gaia
  */
 
-// unknown strings for localization
+// strings for localization
+var musicTitle;
+var playlistTitle;
+var artistTitle;
+var albumTitle;
 var unknownAlbum;
 var unknownArtist;
 var unknownTitle;
@@ -28,7 +32,11 @@ window.addEventListener('localized', function onlocalized() {
   document.documentElement.lang = navigator.mozL10n.language.code;
   document.documentElement.dir = navigator.mozL10n.language.direction;
 
-  // Get prepared for the unknown strings, these will be used later
+  // Get prepared for the localized strings, these will be used later
+  musicTitle = navigator.mozL10n.get('music');
+  playlistTitle = navigator.mozL10n.get('playlists');
+  artistTitle = navigator.mozL10n.get('artists');
+  albumTitle = navigator.mozL10n.get('albums');
   unknownAlbum = navigator.mozL10n.get('unknownAlbum');
   unknownArtist = navigator.mozL10n.get('unknownArtist');
   unknownTitle = navigator.mozL10n.get('unknownTitle');
@@ -46,6 +54,23 @@ window.addEventListener('localized', function onlocalized() {
   if (!musicdb)
     init();
 });
+
+// We get headphoneschange event when the headphones is plugged or unplugged
+// Note that mozAudioChannelManager is not ready yet
+// The name of the interfaces might change in future
+// A related Bug 809106 in Bugzilla
+var acm = navigator.mozAudioChannelManager;
+
+if (acm) {
+  acm.addEventListener('headphoneschange', function onheadphoneschange() {
+    if (!acm.headphones && PlayerView.isPlaying) {
+      PlayerView.pause();
+    }
+  });
+}
+
+// We will use a wake lock later to prevent Music from sleeping
+var cpuLock = null;
 
 function init() {
   // Here we use the mediadb.js which gallery is using (in shared/js/)
@@ -65,6 +90,10 @@ function init() {
       showOverlay('nocard');
     else if (why === MediaDB.UNMOUNTED)
       showOverlay('pluggedin');
+
+    // stop and reset the player then back to tiles mode to avoid crash
+    PlayerView.stop();
+    changeMode(MODE_TILES);
   }
 
   musicdb.onready = function() {
@@ -121,6 +150,36 @@ function hideScanProgress() {
 }
 
 //
+// Web Activities
+//
+
+// Use Web Activities to share files
+function shareFile(filename) {
+  musicdb.getFile(filename, function(file) {
+    // We try to fix Bug 814323 by using
+    // current workaround of bluetooth transfer
+    // so we will pass both filenames and filepaths
+    // The filepaths can be removed after Bug 811615 is fixed
+    var name = filename.substring(filename.lastIndexOf('/') + 1);
+
+    var a = new MozActivity({
+      name: 'share',
+      data: {
+        type: file.type,
+        number: 1,
+        blobs: [file],
+        filenames: [name],
+        filepaths: [filename]
+      }
+    });
+
+    a.onerror = function(e) {
+      console.warn('share activity error:', a.error.name);
+    };
+  });
+}
+
+//
 // Overlay messages
 //
 var currentOverlay;  // The id of the current overlay or null if none.
@@ -140,13 +199,13 @@ var currentOverlay;  // The id of the current overlay or null if none.
 function showOverlay(id) {
   currentOverlay = id;
 
-  var title = navigator.mozL10n.get(id + '-title');
-  var text = navigator.mozL10n.get(id + '-text');
-
   if (id === null) {
     document.getElementById('overlay').classList.add('hidden');
     return;
   }
+
+  var title = navigator.mozL10n.get(id + '-title');
+  var text = navigator.mozL10n.get(id + '-text');
 
   document.getElementById('overlay-title').textContent = title;
   document.getElementById('overlay-text').textContent = text;
@@ -162,10 +221,10 @@ var sublistHandle = null;
 function showCurrentView() {
   TilesView.clean();
   // Enumerate existing song entries in the database
-  // List the all, and sort them in descending order by date.
-  var option = 'date';
+  // List the all, and sort them in ascending order by album.
+  var option = 'metadata.album';
 
-  tilesHandle = musicdb.enumerate(option, null, 'prev',
+  tilesHandle = musicdb.enumerate(option, null, 'nextunique',
                                   TilesView.update.bind(TilesView));
   switch (TabBar.option) {
     case 'playlist':
@@ -190,8 +249,40 @@ var MODE_LIST = 2;
 var MODE_SUBLIST = 3;
 var MODE_PLAYER = 4;
 var currentMode, fromMode;
+var playerTitle, sublistTitle;
 
 function changeMode(mode) {
+  var title;
+
+  switch (mode) {
+    case MODE_TILES:
+      title = playerTitle || musicTitle;
+      break;
+    case MODE_LIST:
+      switch (TabBar.option) {
+        case 'playlist':
+          title = playlistTitle;
+          break;
+        case 'artist':
+          title = artistTitle;
+          break;
+        case 'album':
+          title = albumTitle;
+          break;
+      }
+
+      sublistTitle = title;
+      break;
+    case MODE_SUBLIST:
+      title = sublistTitle;
+      break;
+    case MODE_PLAYER:
+      title = playerTitle;
+      break;
+  }
+
+  TitleBar.changeTitleText(title);
+
   if (mode === currentMode)
     return;
 
@@ -202,25 +293,14 @@ function changeMode(mode) {
   }
   currentMode = mode;
 
-  document.body.classList.remove('tiles-mode');
-  document.body.classList.remove('list-mode');
-  document.body.classList.remove('sublist-mode');
-  document.body.classList.remove('player-mode');
+  // Remove all mode classes before applying a new one
+  var modeClasses = ['tiles-mode', 'list-mode', 'sublist-mode', 'player-mode'];
 
-  switch (mode) {
-    case MODE_TILES:
-      document.body.classList.add('tiles-mode');
-      break;
-    case MODE_LIST:
-      document.body.classList.add('list-mode');
-      break;
-    case MODE_SUBLIST:
-      document.body.classList.add('sublist-mode');
-      break;
-    case MODE_PLAYER:
-      document.body.classList.add('player-mode');
-      break;
-  }
+  modeClasses.forEach(function resetMode(targetClass) {
+    document.body.classList.remove(targetClass);
+  });
+
+  document.body.classList.add(modeClasses[mode - 1]);
 }
 
 // We have two types of the playing sources
@@ -261,7 +341,10 @@ var TitleBar = {
 
             break;
           case 'title-text':
-            changeMode(MODE_PLAYER);
+            // We cannot to switch to player mode
+            // when there is no song in the dataSource of player
+            if (PlayerView.dataSource.length != 0)
+              changeMode(MODE_PLAYER);
 
             break;
         }
@@ -426,6 +509,98 @@ var TilesView = {
   }
 };
 
+// In Music, visually we have three styles of list
+// Here we use one function to create different style lists
+function createListElement(option, data, index) {
+  var li = document.createElement('li');
+  li.className = 'list-item';
+
+  var a = document.createElement('a');
+  a.href = '#';
+  a.dataset.index = index;
+
+  li.appendChild(a);
+
+  switch (option) {
+    case 'playlist':
+      var titleSpan = document.createElement('span');
+      titleSpan.className = 'list-playlist-title';
+      titleSpan.textContent = data.metadata.title || unknownTitle;
+
+      a.dataset.keyRange = 'all';
+      a.dataset.option = data.option;
+
+      li.appendChild(titleSpan);
+
+      if (index === 0) {
+        var shuffleIcon = document.createElement('div');
+        shuffleIcon.className = 'list-playlist-icon';
+        li.appendChild(shuffleIcon);
+      }
+
+      break;
+
+    case 'artist':
+    case 'album':
+      var parent = document.createElement('div');
+      parent.className = 'list-image-parent';
+      parent.classList.add('default-album-' + index % 10);
+      var img = document.createElement('img');
+      img.className = 'list-image';
+
+      if (data.metadata.picture) {
+        parent.appendChild(img);
+        img.addEventListener('load', cropImage);
+        createAndSetCoverURL(img, data, true);
+      }
+
+      if (option === 'artist') {
+        var artistSpan = document.createElement('span');
+        artistSpan.className = 'list-single-title';
+        artistSpan.textContent = data.metadata.artist || unknownArtist;
+        li.appendChild(artistSpan);
+      } else {
+        var albumSpan = document.createElement('span');
+        var artistSpan = document.createElement('span');
+        albumSpan.className = 'list-main-title';
+        artistSpan.className = 'list-sub-title';
+        albumSpan.textContent = data.metadata.album || unknownAlbum;
+        artistSpan.textContent = data.metadata.artist || unknownArtist;
+        li.appendChild(albumSpan);
+        li.appendChild(artistSpan);
+      }
+
+      li.appendChild(parent);
+
+      a.dataset.keyRange = data.metadata[option];
+      a.dataset.option = option;
+
+      break;
+
+    case 'song':
+      var songTitle = data.metadata.title || unknownTitle;
+
+      var indexSpan = document.createElement('span');
+      indexSpan.className = 'list-song-index';
+      indexSpan.textContent = index + 1;
+
+      var titleSpan = document.createElement('span');
+      titleSpan.className = 'list-song-title';
+      titleSpan.textContent = songTitle;
+
+      var lengthSpan = document.createElement('span');
+      lengthSpan.className = 'list-song-length';
+
+      li.appendChild(indexSpan);
+      li.appendChild(titleSpan);
+      li.appendChild(lengthSpan);
+
+      break;
+  }
+
+  return li;
+}
+
 // View of List
 var ListView = {
   get view() {
@@ -444,6 +619,7 @@ var ListView = {
   init: function lv_init() {
     this.dataSource = [];
     this.index = 0;
+    this.lastFirstLetter = null;
 
     this.view.addEventListener('click', this);
   },
@@ -455,18 +631,11 @@ var ListView = {
 
     this.dataSource = [];
     this.index = 0;
+    this.lastFirstLetter = null;
     this.view.innerHTML = '';
     this.view.scrollTop = 0;
 
     showScanProgress();
-  },
-
-  setItemImage: function lv_setItemImage(item, fileinfo) {
-    // Set source to image and crop it to be fitted when it's onloded
-    if (fileinfo.metadata.thumbnail) {
-      item.addEventListener('load', cropImage);
-      createAndSetCoverURL(item, fileinfo, true);
-    }
   },
 
   update: function lv_update(option, result) {
@@ -477,67 +646,21 @@ var ListView = {
 
     this.dataSource.push(result);
 
-    var li = document.createElement('li');
-    li.className = 'list-item';
+    if (option === 'artist' || option === 'album') {
+      var firstLetter = result.metadata[option].charAt(0);
 
-    var a = document.createElement('a');
-    a.href = '#';
-    a.dataset.index = this.index;
+      if (this.lastFirstLetter != firstLetter) {
+        this.lastFirstLetter = firstLetter;
 
-    var parent = document.createElement('div');
-    parent.className = 'list-image-parent';
-    parent.classList.add('default-album-' + this.index % 10);
-    var img = document.createElement('img');
-    img.className = 'list-image';
+        var headerLi = document.createElement('li');
+        headerLi.className = 'list-header';
+        headerLi.textContent = this.lastFirstLetter || '?';
 
-    if (result.metadata.picture)
-      parent.appendChild(img);
-
-    this.setItemImage(img, result);
-
-    switch (option) {
-      case 'album':
-        var albumSpan = document.createElement('span');
-        var artistSpan = document.createElement('span');
-        albumSpan.className = 'list-main-title';
-        artistSpan.className = 'list-sub-title';
-        albumSpan.textContent = result.metadata.album;
-        artistSpan.textContent = result.metadata.artist;
-        a.appendChild(albumSpan);
-        a.appendChild(artistSpan);
-
-        a.dataset.keyRange = result.metadata.album;
-        a.dataset.option = option;
-
-        break;
-      case 'artist':
-        var artistSpan = document.createElement('span');
-        artistSpan.className = 'list-single-title';
-        artistSpan.textContent = result.metadata.artist;
-        a.appendChild(artistSpan);
-
-        a.dataset.keyRange = result.metadata.artist;
-        a.dataset.option = option;
-
-        break;
-      case 'playlist':
-        var titleSpan = document.createElement('span');
-        titleSpan.className = 'list-single-title';
-        titleSpan.textContent = result.metadata.title;
-        a.appendChild(titleSpan);
-
-        a.dataset.keyRange = 'all';
-        a.dataset.option = result.option;
-
-        break;
-      default:
-        return;
+        this.view.appendChild(headerLi);
+      }
     }
 
-    li.appendChild(a);
-    li.appendChild(parent);
-
-    this.view.appendChild(li);
+    this.view.appendChild(createListElement(option, result, this.index));
 
     this.index++;
   },
@@ -562,11 +685,11 @@ var ListView = {
             SubListView.setAlbumSrc(data);
 
           if (option === 'artist') {
-            SubListView.setAlbumName(data.metadata.artist);
+            SubListView.setAlbumName(data.metadata.artist || unknownArtist);
           } else if (option === 'album') {
-            SubListView.setAlbumName(data.metadata.album);
+            SubListView.setAlbumName(data.metadata.album || unknownAlbum);
           } else {
-            SubListView.setAlbumName(data.metadata.title);
+            SubListView.setAlbumName(data.metadata.title || unknownTitle);
           }
 
           var targetOption =
@@ -617,6 +740,7 @@ var SubListView = {
     this.dataSource = [];
     this.index = 0;
     this.backgroundIndex = 0;
+    this.isContextmenu = false;
 
     this.albumDefault = document.getElementById('views-sublist-header-default');
     this.albumImage = document.getElementById('views-sublist-header-image');
@@ -626,6 +750,7 @@ var SubListView = {
       document.getElementById('views-sublist-controls-shuffle');
 
     this.view.addEventListener('click', this);
+    this.view.addEventListener('contextmenu', this);
   },
 
   clean: function slv_clean() {
@@ -700,33 +825,20 @@ var SubListView = {
 
     this.dataSource.push(result);
 
-    var li = document.createElement('li');
-    li.className = 'list-song-item';
-
-    var a = document.createElement('a');
-    a.href = '#';
-
-    var songTitle = (result.metadata.title) ?
-      result.metadata.title : unknownTitle;
-
-    a.dataset.index = this.index;
-
-    var titleSpan = document.createElement('span');
-    titleSpan.className = 'list-song-title';
-    titleSpan.textContent = (this.index + 1) + '. ' + songTitle;
-    a.appendChild(titleSpan);
-
-    li.appendChild(a);
-
-    this.anchor.appendChild(li);
+    this.anchor.appendChild(createListElement('song', result, this.index));
 
     this.index++;
   },
 
   handleEvent: function slv_handleEvent(evt) {
+    var target = evt.target;
+
     switch (evt.type) {
       case 'click':
-        var target = evt.target;
+        if (this.isContextmenu) {
+          this.isContextmenu = false;
+          return;
+        }
 
         if (target === this.shuffleButton) {
           this.shuffle();
@@ -749,11 +861,28 @@ var SubListView = {
 
         break;
 
+      case 'contextmenu':
+        this.isContextmenu = true;
+
+        var targetIndex = parseInt(target.dataset.index);
+        var songData = this.dataSource[targetIndex];
+
+        shareFile(songData.name);
+        break;
+
       default:
         return;
     }
   }
 };
+
+// Repeat option for player
+var REPEAT_OFF = 0;
+var REPEAT_LIST = 1;
+var REPEAT_SONG = 2;
+
+// Key for store options of repeat and shuffle
+var SETTINGS_OPTION_KEY = 'settings_option_key';
 
 // View of Player
 var PlayerView = {
@@ -791,6 +920,9 @@ var PlayerView = {
     this.cover = document.getElementById('player-cover');
     this.coverImage = document.getElementById('player-cover-image');
 
+    this.repeatButton = document.getElementById('player-album-repeat');
+    this.shuffleButton = document.getElementById('player-album-shuffle');
+
     this.ratings = document.getElementById('player-album-rating').children;
 
     this.seekBar = document.getElementById('player-seek-bar-progress');
@@ -803,6 +935,8 @@ var PlayerView = {
     this.dataSource = [];
     this.currentIndex = 0;
     this.backgroundIndex = 0;
+
+    asyncStorage.getItem(SETTINGS_OPTION_KEY, this.setOptions.bind(this));
 
     this.view.addEventListener('click', this);
 
@@ -868,6 +1002,38 @@ var PlayerView = {
     };
   },
 
+  setOptions: function pv_setOptions(settings) {
+    var repeatOption = (settings && settings.repeat) ?
+      settings.repeat : REPEAT_OFF;
+    var shuffleOption = (settings && settings.shuffle) ?
+      settings.shuffle : false;
+
+    this.setRepeat(repeatOption);
+    this.setShuffle(shuffleOption);
+  },
+
+  setRepeat: function pv_setRepeat(value) {
+    var repeatClasses = ['repeat-off', 'repeat-list', 'repeat-song'];
+
+    // Remove all repeat classes before applying a new one
+    repeatClasses.forEach(function pv_resetRepeat(targetClass) {
+      this.repeatButton.classList.remove(targetClass);
+    }.bind(this));
+
+    this.repeatOption = value;
+    this.repeatButton.classList.add(repeatClasses[this.repeatOption]);
+  },
+
+  setShuffle: function pv_setShuffle(value) {
+    this.shuffleOption = value;
+
+    if (this.shuffleOption) {
+      this.shuffleButton.classList.add('shuffle-on');
+    } else {
+      this.shuffleButton.classList.remove('shuffle-on');
+    }
+  },
+
   setRatings: function pv_setRatings(rated) {
     for (var i = 0; i < 5; i++) {
       var rating = this.ratings[i];
@@ -883,6 +1049,10 @@ var PlayerView = {
   play: function pv_play(target, backgroundIndex) {
     this.isPlaying = true;
 
+    // Hold a wake lock to prevent from sleeping
+    if (!cpuLock)
+      cpuLock = navigator.requestWakeLock('cpu');
+
     if (this.endedTimer) {
       clearTimeout(this.endedTimer);
       this.endedTimer = null;
@@ -894,12 +1064,10 @@ var PlayerView = {
       var targetIndex = parseInt(target.dataset.index);
       var songData = this.dataSource[targetIndex];
 
-      TitleBar.changeTitleText((songData.metadata.title) ?
-        songData.metadata.title : unknownTitle);
-      this.artist.textContent = (songData.metadata.artist) ?
-        songData.metadata.artist : unknownArtist;
-      this.album.textContent = (songData.metadata.album) ?
-        songData.metadata.album : unknownAlbum;
+      playerTitle = songData.metadata.title || unknownTitle;
+      TitleBar.changeTitleText(playerTitle);
+      this.artist.textContent = songData.metadata.artist || unknownArtist;
+      this.album.textContent = songData.metadata.album || unknownAlbum;
       this.currentIndex = targetIndex;
 
       // backgroundIndex is from the index of sublistView
@@ -926,6 +1094,10 @@ var PlayerView = {
         // An object URL must be released by calling URL.revokeObjectURL()
         // when we no longer need them
         var url = URL.createObjectURL(file);
+
+        // Add mozAudioChannelType to the player
+        this.audio.mozAudioChannelType = 'content';
+
         this.audio.src = url;
         this.audio.onloadeddata = function(evt) { URL.revokeObjectURL(url); };
 
@@ -939,27 +1111,52 @@ var PlayerView = {
       this.audio.play();
     }
 
-    this.playControl.innerHTML = '||';
     this.playControl.classList.remove('is-pause');
   },
 
   pause: function pv_pause() {
     this.isPlaying = false;
 
+    // We can go to sleep if music pauses
+    if (cpuLock) {
+      cpuLock.unlock();
+      cpuLock = null;
+    }
+
     this.audio.pause();
 
-    this.playControl.innerHTML = '';
     this.playControl.classList.add('is-pause');
   },
 
-  next: function pv_next() {
+  stop: function pv_stop() {
+    this.pause();
+    this.audio.src = null;
+    this.dataSource = [];
+    playerTitle = null;
+  },
+
+  next: function pv_next(isAutomatic) {
     var songElements = (this.sourceType === TYPE_MIX) ?
       TilesView.view.children : SubListView.anchor.children;
 
-    if (this.currentIndex >= this.dataSource.length - 1)
+    // We only repeat a song automatically. (when the song is ended)
+    // If users click skip forward, player will go on to next one
+    if (this.repeatOption === REPEAT_SONG && isAutomatic) {
+      this.play(songElements[this.currentIndex].firstElementChild);
       return;
+    }
 
-    this.currentIndex++;
+    // If it's a last song and repeat list is OFF, ignore it.
+    // but if repeat list is ON, player will restart from the first song
+    if (this.currentIndex >= this.dataSource.length - 1) {
+      if (this.repeatOption === REPEAT_LIST) {
+        this.currentIndex = 0;
+      } else {
+        return;
+      }
+    } else {
+      this.currentIndex++;
+    }
 
     this.play(songElements[this.currentIndex].firstElementChild);
   },
@@ -968,10 +1165,22 @@ var PlayerView = {
     var songElements = (this.sourceType === TYPE_MIX) ?
       TilesView.view.children : SubListView.anchor.children;
 
-    if (this.currentIndex <= 0)
+    // If a song starts more than 3 (seconds),
+    // when users click skip backward, it will restart the current song
+    // otherwise just skip to the previous song
+    if (this.audio.currentTime > 3) {
+      this.play(songElements[this.currentIndex].firstElementChild);
       return;
+    }
 
-    this.currentIndex--;
+    // If it's a first song and repeat list is ON, go to the last one
+    // or just restart from the beginning when repeat list is OFF
+    if (this.currentIndex <= 0) {
+      this.currentIndex = (this.repeatOption === REPEAT_LIST) ?
+        this.dataSource.length - 1 : 0;
+    } else {
+      this.currentIndex--;
+    }
 
     this.play(songElements[this.currentIndex].firstElementChild);
   },
@@ -1056,6 +1265,34 @@ var PlayerView = {
             this.next();
 
             break;
+
+          case 'player-album-repeat':
+            this.showInfo();
+
+            var newValue = ++this.repeatOption % 3;
+            // Store the option when it's triggered by users
+            asyncStorage.setItem(SETTINGS_OPTION_KEY, {
+              repeat: newValue,
+              shuffle: this.shuffleOption
+            });
+
+            this.setRepeat(newValue);
+
+            break;
+
+          case 'player-album-shuffle':
+            this.showInfo();
+
+            var newValue = !this.shuffleOption;
+            // Store the option when it's triggered by users
+            asyncStorage.setItem(SETTINGS_OPTION_KEY, {
+              repeat: this.repeatOption,
+              shuffle: newValue
+            });
+
+            this.setShuffle(newValue);
+
+            break;
         }
 
         if (target.dataset.rating) {
@@ -1087,7 +1324,7 @@ var PlayerView = {
           var timeToNext = (this.audio.duration - this.audio.currentTime + 1);
           this.endedTimer = setTimeout(function() {
                                          this.endedTimer = null;
-                                         this.next();
+                                         this.next(true);
                                        }.bind(this),
                                        timeToNext * 1000);
         }
@@ -1096,7 +1333,7 @@ var PlayerView = {
         // Because of the workaround above, we have to ignore real ended
         // events if we already have a timer set to emulate them
         if (!this.endedTimer)
-          this.next();
+          this.next(true);
         break;
 
       default:
@@ -1128,9 +1365,16 @@ var TabBar = {
     switch (evt.type) {
       case 'click':
         var target = evt.target;
-        this.option = target.dataset.option;
+
         if (!target)
           return;
+
+        // if users click same option, ignore it
+        if (this.option === target.dataset.option) {
+          return;
+        } else {
+          this.option = target.dataset.option;
+        }
 
         switch (target.id) {
           case 'tabs-mix':
@@ -1192,25 +1436,4 @@ window.addEventListener('DOMContentLoaded', function() {
   TabBar.init();
 
   changeMode(MODE_TILES);
-
-  window.addEventListener('keyup', function keyPressHandler(evt) {
-    if (evt.keyCode == evt.DOM_VK_ESCAPE) {
-      switch (currentMode) {
-        case MODE_TILES:
-          break;
-        case MODE_LIST:
-          changeMode(MODE_TILES);
-          evt.preventDefault();
-          break;
-        case MODE_SUBLIST:
-          changeMode(MODE_LIST);
-          evt.preventDefault();
-          break;
-        case MODE_PLAYER:
-          changeMode(MODE_SUBLIST);
-          evt.preventDefault();
-          break;
-      }
-    }
-  });
 });

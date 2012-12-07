@@ -69,16 +69,6 @@ var BackgroundServiceManager = (function bsm() {
     // This bg service has just crashed, clean up the frame
     var name = target.dataset.frameName;
     close(manifestURL, name);
-
-    // Attempt to relaunch if we could find the info to do so
-    var app = Applications.getByManifestURL(manifestURL);
-    if (name != AUTO_OPEN_BG_PAGE_NAME || !app)
-      return;
-
-    // XXX: this work as if background_page is always a path not a full URL.
-    var url = origin + app.manifest.background_page;
-    open(manifestURL, AUTO_OPEN_BG_PAGE_NAME, url);
-
   }, true);
 
   /* OnInstall */
@@ -117,16 +107,6 @@ var BackgroundServiceManager = (function bsm() {
     if (!app || !hasBackgroundPermission(app))
       return false;
 
-    // These apps currently have bugs preventing them from being
-    // run out of process. All other apps will be run OOP.
-    //
-    var backgroundOutOfProcessBlackList = [
-      'Messages',
-
-      // XXX: https://bugzilla.mozilla.org/show_bug.cgi?id=783066
-      'Communications'
-    ];
-
     if (frames[manifestURL] && frames[manifestURL][name]) {
       console.error('Window with the same name is there but Gecko ' +
         ' failed to use it. See bug 766873. origin: "' + origin +
@@ -144,14 +124,8 @@ var BackgroundServiceManager = (function bsm() {
       frame.setAttribute('name', name);
 
       var appName = app.manifest.name;
-      if (backgroundOutOfProcessBlackList.indexOf(appName) === -1) {
-        // FIXME: content shouldn't control this directly
-        frame.setAttribute('remote', 'true');
-        console.info('%%%%% Launching', appName, 'bg service as remote (OOP)');
-      } else {
-        console.info('%%%%% Launching', appName, 'bg service as local');
-      }
-
+      frame.setAttribute('remote', 'true');
+      console.info('%%%%% Launching', appName, 'bg service as remote (OOP)');
       frame.src = url;
     }
     frame.className = 'backgroundWindow';
@@ -163,6 +137,13 @@ var BackgroundServiceManager = (function bsm() {
     frames[manifestURL][name] = frame;
 
     document.body.appendChild(frame);
+
+    // Background services should load in the background.
+    //
+    // (The funky setTimeout(0) is to work around
+    // https://bugzilla.mozilla.org/show_bug.cgi?id=810431 .)
+    setTimeout(function () { frame.setVisible(false) }, 0);
+
     return true;
   };
 

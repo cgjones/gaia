@@ -4,6 +4,7 @@ requireApp('calendar/test/unit/helper.js', function() {
   requireLib('ext/ical.js');
   requireLib('ext/caldav.js');
   requireLib('service/caldav.js');
+  requireLib('store/ical_component.js');
   requireLib('provider/caldav_pull_events.js');
   requireLib('models/account.js');
   requireLib('models/calendar.js');
@@ -60,7 +61,10 @@ suite('provider/caldav_pull_events', function() {
   ['singleEvent', 'dailyEvent', 'recurringEvent'].forEach(function(item) {
     setup(function(done) {
       service.parseEvent(ical[item], function(err, event) {
-        fixtures[item] = service._formatEvent('abc', '/foobar.ics', event);
+        fixtures[item] = service._formatEvent(
+          'abc', '/foobar.ics',
+          ical[item], event
+        );
         done();
       });
     });
@@ -111,7 +115,8 @@ suite('provider/caldav_pull_events', function() {
   teardown(function(done) {
     testSupport.calendar.clearStore(
       db,
-      ['accounts', 'calendars', 'events', 'busytimes', 'alarms'],
+      ['accounts', 'calendars', 'icalComponents',
+       'events', 'busytimes', 'alarms'],
       done
     );
   });
@@ -324,6 +329,7 @@ suite('provider/caldav_pull_events', function() {
   suite('#commit', function() {
     var removed = [];
     var eventStore;
+    var componentStore;
     var newEvent;
     var newBusytime;
     var alarm;
@@ -331,12 +337,19 @@ suite('provider/caldav_pull_events', function() {
     setup(function() {
       removed.length = 0;
       eventStore = app.store('Event');
+      componentStore = app.store('IcalComponent');
+
       eventStore.remove = function(id) {
         removed.push(id);
       }
 
       newEvent = serviceEvent('singleEvent');
       newEvent = subject.formatEvent(newEvent);
+
+      subject.icalQueue.push({
+        data: newEvent.remote.icalComponent,
+        eventId: newEvent._id
+      });
 
       subject.eventQueue.push(newEvent);
       subject.removeList = ['1'];
@@ -481,10 +494,23 @@ suite('provider/caldav_pull_events', function() {
       });
     });
 
-    suite('events', function() {
+    suite('event/component', function() {
       commit();
 
-      test('result', function(done) {
+      test('component', function(done) {
+        componentStore.get(newEvent._id, function(err, record) {
+          if (err) {
+            done(err);
+            return;
+          }
+          done(function() {
+            assert.ok(record, 'has records');
+            assert.deepEqual(record.data, newEvent.remote.icalComponent);
+          });
+        });
+      });
+
+      test('event', function(done) {
         eventStore.findByIds([newEvent._id], function(err, list) {
           done(function() {
             assert.length(Object.keys(list), 1, 'saved events');
@@ -586,6 +612,15 @@ suite('provider/caldav_pull_events', function() {
       stream.emit('event', event);
 
       assert.length(subject.eventQueue, 3);
+      assert.length(subject.icalQueue, 1);
+
+      assert.hasProperties(
+        subject.icalQueue[0],
+        {
+          eventId: control._id,
+          data: control.remote.icalComponent
+        }
+      );
 
       var order = [control].concat(exceptions);
 
@@ -608,8 +643,12 @@ suite('provider/caldav_pull_events', function() {
       subject = createSubject();
 
       var newEvent = serviceEvent('singleEvent');
-      newEvent.syncToken = 'bbx1';
+      var expectedComponent = newEvent.icalComponent;
 
+      assert.ok(expectedComponent);
+      expectedComponent = JSON.parse(JSON.stringify(expectedComponent));
+
+      newEvent.syncToken = 'bbx1';
       assert.notEqual(
         newEvent.syncToken,
         existing.remote.syncToken,
@@ -621,6 +660,23 @@ suite('provider/caldav_pull_events', function() {
       assert.length(
         subject.eventQueue,
         1
+      );
+
+      var savedEvent = subject.eventQueue[0];
+
+      assert.ok(
+        !savedEvent.remote.icalComponent,
+        'does not save the ical component'
+      );
+
+      assert.length(
+        subject.icalQueue,
+        1
+      );
+
+      assert.deepEqual(
+        subject.icalQueue[0],
+        { data: expectedComponent, eventId: savedEvent._id }
       );
     });
 

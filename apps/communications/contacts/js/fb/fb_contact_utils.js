@@ -14,8 +14,8 @@ fb.CONTACTS_APP_ORIGIN = 'app://communications.gaiamobile.org';
 // Some convenience functions follow
 
 fb.isFbContact = function(devContact) {
-  return (devContact.category &&
-                        devContact.category.indexOf(fb.CATEGORY) !== -1);
+  return (devContact && devContact.category &&
+          devContact.category.indexOf(fb.CATEGORY) !== -1);
 };
 
 
@@ -88,9 +88,11 @@ fb.setFriendPictureUrl = function(devContact, url) {
 // Adapts data to the mozContact format names
 fb.friend2mozContact = function(f) {
 // givenName is put as name but it should be f.first_name
-  f.familyName = [f.last_name];
-  f.additionalName = [f.middle_name];
-  f.givenName = [f.first_name + ' ' + f.middle_name];
+  f.familyName = [f.last_name ? f.last_name.trim() : (f.last_name || '')];
+  var middleName = f.middle_name ? f.middle_name.trim() : (f.middle_name || '');
+  f.additionalName = middleName;
+  var firstName = f.first_name ? f.first_name.trim() : (f.first_name || '');
+  f.givenName = [(firstName + ' ' + middleName).trim()];
 
   delete f.last_name;
   delete f.middle_name;
@@ -186,15 +188,23 @@ fb.getBirthDate = function getBirthDate(sbday) {
 };
 
 fb.getAddress = function(fbdata) {
+
+  function fillAddress(fbAddress) {
+    var outAddr = {};
+
+    outAddr.type = ['home'];
+    outAddr.locality = fbAddress.city || '';
+    outAddr.region = fbAddress.state || '';
+    outAddr.countryName = fbAddress.country || '';
+
+    return outAddr;
+  }
+
   var out;
 
-  var hometownInfo = fbdata.hometown_location;
-  if (hometownInfo) {
-    out = {};
-    out.type = ['home'];
-    out.locality = hometownInfo.city || '';
-    out.region = hometownInfo.state || '';
-    out.countryName = hometownInfo.country || '';
+  var addressInfo = fbdata.current_location || fbdata.hometown_location;
+  if (addressInfo) {
+    out = fillAddress(addressInfo);
   }
 
   return out;

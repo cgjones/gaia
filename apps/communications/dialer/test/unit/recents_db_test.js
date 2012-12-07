@@ -9,13 +9,13 @@ suite('dialer/recents_db', function() {
   suiteSetup(function() {
     subject = RecentsDBManager;
 
-    callList.push(new MockRecent('11111', 'incoming-connected'));
-    callList.push(new MockRecent('11111', 'incoming-connected'));
-    callList.push(new MockRecent('11111', 'incoming-connected'));
-    callList.push(new MockRecent('11111', 'incoming-refused'));
-    callList.push(new MockRecent('11111', 'incoming-refused'));
+    callList.push(new MockRecent('11111', 'incoming-connected', 1354131841000));
+    callList.push(new MockRecent('11111', 'incoming-connected', 1354131842000));
+    callList.push(new MockRecent('11111', 'incoming-connected', 1354131843000));
+    callList.push(new MockRecent('11111', 'incoming-refused', 1354131844000));
+    callList.push(new MockRecent('11111', 'incoming-refused', 1354131845000));
 
-    singleCall = new MockRecent('22222', 'outgoing-connected');
+    singleCall = new MockRecent('22222', 'outgoing-connected', 1354131846000);
   });
 
   suite('#initialization', function() {
@@ -54,7 +54,13 @@ suite('dialer/recents_db', function() {
             'Number of entries added ' + numAdditions);
         });
       });
+    });
 
+    test('#getLast', function(done) {
+      subject.getLast(function(lastEntry) {
+        assert.equal('22222', lastEntry.number);
+        done();
+      });
     });
 
     test('#delete_single', function(done) {

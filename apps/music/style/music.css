@@ -74,7 +74,7 @@ body {
   height: 3px;
   border: none;
   overflow: hidden;
-  z-index: 11;
+  z-index: 31;
 }
 
 #throbber {
@@ -127,7 +127,8 @@ body.player-mode #views {
 }
 
 #title-text:active {
-  color: orange;
+  color: rgb(0, 138, 170);
+  transition: color 200ms ease;
 }
 
 #search {
@@ -157,12 +158,7 @@ body.player-mode #views {
   float: left;
 }
 
-#views-tiles {
-  height: 100%;
-  overflow-x: hidden;
-  overflow-y: auto;
-}
-
+#views-tiles,
 #views-list,
 #views-sublist {
   height: 100%;
@@ -189,7 +185,6 @@ body.player-mode #views {
 
 #views-sublist-header {
   height: 8rem;
-  border-bottom: solid 1px rgba(255, 255, 255, 0.25);
 }
 
 #views-sublist-anchor {
@@ -204,6 +199,7 @@ body.player-mode #views {
   position: relative;
   float: left;
   left: 3rem;
+  border-bottom: solid 1px rgba(255, 255, 255, 0.1);
 }
 
 #views-sublist-header-default {
@@ -219,7 +215,7 @@ body.player-mode #views {
 
 #views-sublist-header-name {
   position:relative;
-  font-size: 2rem;
+  font-size: 1.83rem;
   padding: 0 1rem;
   width: calc(100% - 2rem);
   height: 4rem;
@@ -239,7 +235,7 @@ body.player-mode #views {
 #views-sublist-controls-shuffle {
   position:relative;
   float: left;
-  font-size: 2rem;
+  font-size: 1.83rem;
   padding: 0 1rem;
   width: 50%;
   height: 4rem;
@@ -248,17 +244,18 @@ body.player-mode #views {
 }
 
 #views-sublist-controls-play {
-  background-image: url('./images/controls_play.png');
+  background-image: url("./images/IconAction_Media_Play_30x30.png");
 }
 
 #views-sublist-controls-shuffle {
-  background-image: url('./images/controls_shuffle.png');
+  background-image: url("./images/IconAction_Media_ShuffleOn_30x30.png");
 }
 
 .album-controls-button {
   border: none;
   border-radius: 0px;
   background: transparent;
+  transition: background 200ms ease;
 }
 
 .album-controls-button:hover {
@@ -288,6 +285,11 @@ body.player-mode #views {
   font-weight: lighter;
   background-color: #303030;
   overflow: hidden;
+}
+
+.main-tile:last-child,
+.sub-tile:last-child {
+  margin-bottom: 4rem;
 }
 
 .tile-container {
@@ -327,16 +329,16 @@ body.player-mode #views {
 
 .tile-title-artist {
   color: rgba(255, 255, 255, 1);
-  font-size: 1.35rem;
+  font-size: 1.38rem;
 }
 
 .tile-title-album {
   color: rgba(255, 255, 255, 0.65);
-  font-size: 1.35rem;
+  font-size: 1.38rem;
 }
 
 .main-tile-title {
-  font-size: 1.8rem;
+  font-size: 1.83rem;
 }
 
 .sub-tile-title {
@@ -511,14 +513,14 @@ body.player-mode #views {
   width: 100%;
   height: auto;
   text-align: left;
-  font-size: 1.8rem;
+  font-size: 1.83rem;
 }
 
 #player-cover-album {
   width: 100%;
   height: auto;
   text-align: left;
-  font-size: 1.5rem;
+  font-size: 1.61rem;
 }
 
 #player-cover-buttons {
@@ -534,9 +536,9 @@ body.player-mode #views {
 
 #player-album-shuffle, 
 #player-album-repeat {
-  top: 15%;
+  top: 10%;
   width: calc(25% - 20px);
-  height: 70%;
+  height: 80%;
   padding: 0px;
   border-radius: 35px;
   margin: 0 10px;
@@ -546,11 +548,23 @@ body.player-mode #views {
 }
 
 #player-album-shuffle {
-  background-image: url('./images/controls_shuffle.png');
+  background-image: url("./images/IconAction_Media_ShuffleOff_30x30.png");
 }
 
-#player-album-repeat {
-  background-image: url('./images/controls_repeat.png');
+#player-album-shuffle.shuffle-on {
+  background-image: url("./images/IconAction_Media_ShuffleOn_30x30.png");
+}
+
+#player-album-repeat.repeat-off {
+  background-image: url("./images/IconAction_Media_RepeatOff_30x30.png");
+}
+
+#player-album-repeat.repeat-list {
+  background-image: url("./images/IconAction_Media_RepeatList_30x30.png");
+}
+
+#player-album-repeat.repeat-song {
+  background-image: url("./images/IconAction_Media_RepeatSong_30x30.png");
 }
 
 #player-album-rating {
@@ -601,10 +615,10 @@ button::-moz-focus-inner {
 #player-seek-remaining {  
   top: 36%;
   width: 20%;
-  font-size: 1.5rem;
+  font-size: 1.38rem;
+  font-weight: 500;
+  color: #a1afb2;
   text-align: center;
-  opacity: 0.75;
-  text-shadow: black 1px 1px;
 }
 
 #player-seek-bar {
@@ -657,19 +671,22 @@ button::-moz-focus-inner {
 
 #player-controls-play {
   width: 40%;
-  font-size: 3rem;
 }
 
 #player-controls-previous {
-  background-image: url('./images/controls_backward.png');
+  background-image: url("./images/IconAction_Media_SkipBackwards_30x30.png");
+}
+
+#player-controls-play {
+  background-image: url("./images/IconAction_Media_Pause_30x30.png");
 }
 
 #player-controls-play.is-pause {
-  background-image: url('./images/controls_play.png');
+  background-image: url("./images/IconAction_Media_Play_30x30.png");
 }
 
 #player-controls-next {
-  background-image: url('./images/controls_forward.png');
+  background-image: url("./images/IconAction_Media_SkipForward_30x30.png");
 }
 
 .player-controls-button {
@@ -677,6 +694,7 @@ button::-moz-focus-inner {
   border: none;
   border-radius: 0px;
   background: transparent;
+  transition: background 200ms ease;
 }
 .player-controls-button:hover {
   background: transparent;
@@ -692,7 +710,7 @@ button::-moz-focus-inner {
   height: 4rem;
   z-index: 20;
   transition: opacity 800ms ease;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.75);
 }
 
 #tabs-mix,
@@ -704,31 +722,32 @@ button::-moz-focus-inner {
   width: 25%;
   height: 100%;
   padding: 0px;
-  font-size: 1.5rem;
+  font-size: 1.61rem;
   background-position: center center;
   background-repeat: no-repeat;
 }
 
 #tabs-mix {
-  background-image: url('./images/tabs_mix.png');
+  background-image: url("./images/IconAction_Camera_GridView_30x30.png");
 }
 
 #tabs-playlists {
-  background-image: url('./images/tabs_playlists.png');
+  background-image: url("./images/IconAction_Media_PlayList_30x30.png");
 }
 
 #tabs-artists {
-  background-image: url('./images/tabs_artists.png');
+  background-image: url("./images/IconAction_Media_ArtistFilter_30x30.png");
 }
 
 #tabs-albums {
-  background-image: url('./images/tabs_albums.png');
+  background-image: url("./images/IconAction_Media_AlbumFilter_30x30.png");
 }
 
 .tabs-button {
   border: none;
   border-radius: 0px;
   background: transparent;
+  transition: background 200ms ease;
 }
 .tabs-button:hover {
   background: transparent;
@@ -744,6 +763,7 @@ button::-moz-focus-inner {
   border: none;
   border-radius: 0px;
   background: transparent;
+  transition: background 200ms ease;
 }
 .player-cover-button:hover {
   background: transparent;
@@ -763,6 +783,23 @@ button::-moz-focus-inner {
   visibility: hidden;
 }
 
+li:last-child {
+  padding-bottom: 4rem;
+}
+
+li.list-header {
+  list-style-type: none;
+  position: relative;
+  margin: 0 8rem 0 3rem;
+  width: calc(100% - 11.5rem);
+  height: 2.5rem;
+  line-height: 2.5rem;
+  font-size: 1.83rem;
+  color: rgb(0, 138, 170);
+  border-bottom: solid 1px rgba(255, 255, 255, 0.1);
+  pointer-events: none;
+}
+
 li.list-item {
   list-style-type: none;
   position: relative;
@@ -779,51 +816,26 @@ li.list-item a {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  width: 84%;
-  margin-left: 11%;
-  margin-right: 5%;
+  width: 100%;
   height: 6rem;
+  background: transparent;
+  transition: background 200ms ease;
 }
 
 li.list-item a:active {
   color: black;
   text-shadow: rgba(255, 255, 255, 0.5) 1px 1px;
-  background-color: orange;
+  background: rgb(0, 138, 170);
 }
 
-li.list-song-item {
-  list-style-type: none;
-  position: relative;
-  width: 100%;
-}
-
-li.list-song-item a {
-  display: block;
-  color: #fff;
-  text-decoration: none;
-  border-bottom: solid 1px rgba(255, 255, 255, 0.25);
-  outline: none;
-  margin: 0;
-  text-shadow: black 1px 1px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  width: 100%;
-  height: 6rem;
-}
-
-li.list-song-item a:active {
-  color: black;
-  text-shadow: rgba(255, 255, 255, 0.5) 1px 1px;
-  background-color: orange;
-}
-
-/* title width is 100% - 1em(padding) - 6em(albumArt) */
+/* title width is 100% - 1rem(padding) - 6rem(albumArt) */
 .list-main-title,
 .list-sub-title,
 .list-single-title,
+.list-playlist-title,
 .list-song-title {
   position: absolute;
+  top: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
   overflow: hidden;
@@ -832,43 +844,97 @@ li.list-song-item a:active {
 
 .list-main-title {
   top: 10%;
-  width: calc(84% - 7rem);
-  font-size: 2rem;
+  width: calc(100% - 12rem);
+  padding: 0 0.5rem 0 3rem;
+  font-size: 1.83rem;
   color: white;
 }
 
 .list-sub-title {
-  top: 50%;
-  width: calc(84% - 7rem);
-  font-size: 1.6rem;
-  color: gray;
+  top: 3rem;
+  width: calc(100% - 12rem);
+  padding: 0 0.5rem 0 3rem;
+  font-size: 1.61rem;
+  color: #8a9699;
 }
 
 .list-single-title {
-  top: 28%;
-  width: calc(84% - 7rem);
-  font-size: 2rem;
+  width: calc(100% - 12rem);
+  height: 6rem;
+  line-height: 6rem;
+  padding: 0 0.5rem 0 3rem;
+  font-size: 1.83rem;
   color: white;
 }
 
-.list-song-title {
-  top: 28%;
-  width: calc(89% - 0.5rem);
-  padding-left: 11%;
+.list-playlist-title {
+  width: calc(100% - 3.5rem);
+  height: 6rem;
+  padding-left: 3rem;
   padding-right: 0.5rem;
-  font-size: 2rem;
+  line-height: 6rem;
+  font-size: 1.83rem;
   color: white;
+  border-bottom: solid 1px rgba(255, 255, 255, 0.1);
+}
+
+.list-playlist-icon {
+  position: absolute;
+  top: 0;
+  right: 2rem;
+  width: 4rem;
+  height: 6rem;
+  background-position: center center;
+  background-repeat: no-repeat;
+  background-image: url("./images/IconAction_Media_ShuffleOn_30x30.png");
+  pointer-events: none;
+}
+
+.list-song-index,
+.list-song-length {
+  position: absolute;
+  top: 0;
+  height: 6rem;
+  line-height: 6rem;
+  font-size: 1.3rem;
+  font-weight: bolder;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+  pointer-events: none;
+}
+
+.list-song-index {
+  width: 3rem;
+}
+
+.list-song-title {
+  left: 3rem;
+  width: calc(100% - 3.5rem - 5.5rem);
+  height: 6rem;
+  line-height: 6rem;
+  padding-right: 0.5rem;
+  font-size: 1.83rem;
+  color: white;
+  border-bottom: solid 1px rgba(255, 255, 255, 0.1);
+}
+
+.list-song-length {
+  right: 0;
+  width: 5rem;
+  padding-right: 0.5rem;
+  border-bottom: solid 1px rgba(255, 255, 255, 0.1);
 }
 
 .list-image-parent {
   position: absolute;
-  right: 5%;
+  right: 2.5rem;
   top: 0px;
   height: 6rem;
   width: 6rem;
   overflow: hidden;
-  background-color: gray;
+  background-color: #8a9699;
   box-shadow: 0 0 1px black;
+  pointer-events: none;
 }
 
 .list-image {

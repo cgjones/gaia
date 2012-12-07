@@ -63,9 +63,7 @@ var Browser = {
     this.urlInput.addEventListener('mouseup', this.urlMouseUp.bind(this));
     this.urlInput.addEventListener('keyup',
       this.handleUrlInputKeypress.bind(this));
-    this.topSites.addEventListener('click', this.followLink.bind(this));
-    this.bookmarks.addEventListener('click', this.followLink.bind(this));
-    this.history.addEventListener('click', this.followLink.bind(this));
+    this.tabPanels.addEventListener('click', this.followLink.bind(this));
     this.urlButton.addEventListener('click',
       this.handleUrlFormSubmit.bind(this));
     this.tabsBadge.addEventListener('click',
@@ -80,7 +78,7 @@ var Browser = {
     this.newTabButton.addEventListener('click', this.handleNewTab.bind(this));
     this.settingsDoneButton.addEventListener('click',
       this.showPageScreen.bind(this));
-    this.aboutFirefoxButton.addEventListener('click',
+    this.aboutBrowserButton.addEventListener('click',
       this.showAboutPage.bind(this));
     this.clearHistoryButton.addEventListener('click',
       this.handleClearHistory.bind(this));
@@ -162,14 +160,14 @@ var Browser = {
       'bookmarks-tab', 'history-tab', 'back-button', 'forward-button',
       'bookmark-button', 'ssl-indicator', 'tabs-badge', 'throbber', 'frames',
       'tabs-list', 'main-screen', 'settings-button', 'settings-done-button',
-      'about-firefox-button', 'clear-history-button', 'crashscreen',
+      'about-browser-button', 'clear-history-button', 'crashscreen',
       'close-tab', 'try-reloading', 'bookmark-menu', 'bookmark-menu-add',
       'bookmark-menu-remove', 'bookmark-menu-cancel', 'bookmark-menu-edit',
       'bookmark-entry-sheet', 'bookmark-entry-sheet-cancel',
       'bookmark-entry-sheet-done', 'bookmark-title', 'bookmark-url',
       'bookmark-previous-url', 'bookmark-menu-add-home', 'new-tab-button',
       'awesomescreen-cancel-button', 'startscreen', 'top-site-thumbnails',
-      'no-top-sites', 'clear-private-data-button'];
+      'no-top-sites', 'clear-private-data-button', 'results', 'tab-panels'];
 
     // Loop and add element with camel style name to Modal Dialog attribute.
     elementIDs.forEach(function createElementRef(name) {
@@ -254,6 +252,7 @@ var Browser = {
       this.deleteTab(this.currentTab.id);
       this.showTabScreen();
     }
+    this.updateSecurityIcon();
   },
 
   handleNewTab: function browserHandleNewTab(e) {
@@ -568,7 +567,7 @@ var Browser = {
     url = url.trim();
     // If the address entered starts with a quote then search, if it
     // contains a . or : then treat as a url, else search
-    return /^"|\'/.test(url) || !(/\.|\:/.test(url));
+    return /^"|\'/.test(url) || !(/\.|\:/.test(url)); //"
   },
 
   getUrlFromInput: function browser_getUrlFromInput(url) {
@@ -766,8 +765,8 @@ var Browser = {
       // Hide modal dialog
       ModalDialog.hide();
       AuthenticationDialog.hide();
-
       this.urlInput.value = this.currentTab.url;
+      this.sslIndicator.value = '';
       this.setUrlBar(this.currentTab.url);
       this.showAwesomeScreen();
       this.shouldFocus = true;
@@ -809,23 +808,60 @@ var Browser = {
     this.bookmarksTab.classList.remove('selected');
     this.history.classList.remove('selected');
     this.historyTab.classList.remove('selected');
+    this.results.classList.remove('selected');
+  },
+
+  showAwesomescreenTabs: function browser_showAwesomescreenTabs() {
+    this.topSites.style.display = '';
+    this.bookmarks.style.display = '';
+    this.history.style.display = '';
+    this.tabHeaders.style.display = '';
+  },
+
+  hideAwesomescreenTabs: function browser_hideAwesomescreenTabs() {
+    this.topSites.style.display = 'none';
+    this.bookmarks.style.display = 'none';
+    this.history.style.display = 'none';
+    this.tabHeaders.style.display = 'none';
   },
 
   updateAwesomeScreen: function browser_updateAwesomeScreen(filter) {
     if (!filter) {
-      this.tabHeaders.style.display = 'block';
+      this.showAwesomescreenTabs();
+      this.results.classList.remove('selected');
       filter = false;
     } else {
-      this.tabHeaders.style.display = 'none';
+      this.hideAwesomescreenTabs();
+      this.results.classList.add('selected');
     }
-    Places.getTopSites(20, filter, this.showTopSites.bind(this));
+    Places.getTopSites(20, filter, this.showResults.bind(this));
+  },
+
+  showResults: function browser_showResults(visited, filter) {
+    this.results.innerHTML = '';
+    var list = document.createElement('ul');
+    list.setAttribute('role', 'listbox');
+    this.results.appendChild(list);
+    visited.forEach(function browser_processResult(data) {
+      this.drawAwesomescreenListItem(list, data, filter);
+    }, this);
+    if (visited.length < 2 && filter) {
+      var data = {
+        title: this.DEFAULT_SEARCH_PROVIDER_TITLE,
+        uri: 'http://' + this.DEFAULT_SEARCH_PROVIDER_URL +
+          '/search?q=' + filter,
+        iconUri: this.DEFAULT_SEARCH_PROVIDER_ICON,
+        description: _('search-for') + ' "' + filter + '"'
+      };
+      this.drawAwesomescreenListItem(list, data);
+    }
   },
 
   showTopSitesTab: function browser_showTopSitesTab(filter) {
     this.deselectAwesomescreenTabs();
     this.topSitesTab.classList.add('selected');
     this.topSites.classList.add('selected');
-    this.updateAwesomeScreen();
+    Places.getTopSites(20, filter, this.showTopSites.bind(this));
   },
 
   showTopSites: function browser_showTopSites(topSites, filter) {
@@ -836,16 +872,6 @@ var Browser = {
     topSites.forEach(function browser_processTopSite(data) {
       this.drawAwesomescreenListItem(list, data, filter);
     }, this);
-    if (topSites.length < 2 && filter) {
-      var data = {
-        title: this.DEFAULT_SEARCH_PROVIDER_TITLE,
-        uri: 'http://' + this.DEFAULT_SEARCH_PROVIDER_URL +
-          '/search?q=' + filter,
-        iconUri: this.DEFAULT_SEARCH_PROVIDER_ICON,
-        description: _('search-for') + ' "' + filter + '"'
-      };
-      this.drawAwesomescreenListItem(list, data);
-    }
   },
 
   showHistoryTab: function browser_showHistoryTab() {
@@ -1131,8 +1157,8 @@ var Browser = {
       tab.dom.style.top = '-999px';
       return;
     }
-    if (tab.dom.setActive) {
-      tab.dom.setActive(visible);
+    if (tab.dom.setVisible) {
+      tab.dom.setVisible(visible);
     }
     if (tab.crashed) {
       this.showCrashScreen();
@@ -1158,6 +1184,7 @@ var Browser = {
       iframe = document.createElement('iframe');
       iframe.mozbrowser = true;
       iframe.setAttribute('mozallowfullscreen', true);
+      iframe.classList.add('browser-tab');
 
       if (url) {
         iframe.setAttribute('src', url);
@@ -1166,6 +1193,7 @@ var Browser = {
 
     iframe.style.top = '-999px';
 
+    iframe.setAttribute('mozasyncpanzoom', 'true');
     // FIXME: content shouldn't control this directly
     iframe.setAttribute('remote', 'true');
 
@@ -1252,10 +1280,12 @@ var Browser = {
     if (this.currentScreen === this.TABS_SCREEN) {
       this.screenSwipeMngr.gestureDetector.stopDetecting();
     }
-    document.body.classList.remove(this.currentScreen);
-    this.previousScreen = this.currentScreen;
-    this.currentScreen = screen;
-    document.body.classList.add(this.currentScreen);
+    if (this.currentScreen !== screen) {
+      document.body.classList.remove(this.currentScreen);
+      this.previousScreen = this.currentScreen;
+      this.currentScreen = screen;
+      document.body.classList.add(this.currentScreen);
+    }
   },
 
   showStartscreen: function browser_showStartscreen() {
@@ -1329,6 +1359,7 @@ var Browser = {
     this.mainScreen.addEventListener('transitionend', pageShown, true);
     this.switchScreen(this.AWESOME_SCREEN);
     this.setUrlButtonMode(this.GO);
+    this.showAwesomescreenTabs();
     this.showTopSitesTab();
   },
 
@@ -1448,16 +1479,34 @@ var Browser = {
   },
 
   handleClearHistory: function browser_handleClearHistory() {
-    var msg = navigator.mozL10n.get('confirm-clear-history');
+    var msg = navigator.mozL10n.get('confirm-clear-browsing-history');
     if (confirm(msg)) {
       Places.clearHistory((function() {
+
         this.clearHistoryButton.setAttribute('disabled', 'disabled');
+
+        Places.getTopSites(this.MAX_TOP_SITES, null,
+          this.showTopSiteThumbnails.bind(this));
+
+        var self = this;
+        for each(var tab in this.tabs) {
+          if (tab.dom.purgeHistory) {
+            tab.dom.purgeHistory().onsuccess = (function(e) {
+              if (self.tabs[tabId] == self.currentTab) {
+                self.refreshButtons();
+              }
+            });
+          }
+        }
+
       }).bind(this));
+
+      this.history.innerHTML = '';
     }
   },
 
   clearPrivateData: function browser_clearPrivateData() {
-    var msg = navigator.mozL10n.get('confirm-clear-private-data');
+    var msg = navigator.mozL10n.get('confirm-clear-cookies-and-stored-data');
     if (confirm(msg)) {
       var request = navigator.mozApps.getSelf();
       request.onsuccess = (function() {
@@ -1648,9 +1697,7 @@ var Browser = {
       case 'url':
         var url = this.getUrlFromInput(activity.source.data.url);
         this.selectTab(this.createTab(url));
-        if (this.currentScreen !== this.PAGE_SCREEN) {
-          this.showPageScreen();
-        }
+        this.showPageScreen();
         break;
     }
   }
@@ -1661,13 +1708,13 @@ var Browser = {
 var Utils = {
   createHighlightHTML: function ut_createHighlightHTML(text, searchRegExp) {
     if (!searchRegExp) {
-      return text;
+      return Utils.escapeHTML(text);
     }
     searchRegExp = new RegExp(searchRegExp, 'gi');
     var sliceStrs = text.split(searchRegExp);
     var patterns = text.match(searchRegExp);
     if (!patterns) {
-      return text;
+      return Utils.escapeHTML(text);
     }
     var str = '';
     for (var i = 0; i < patterns.length; i++) {
@@ -1687,7 +1734,7 @@ var Utils = {
     span.innerHTML = span.innerHTML.replace(/\s/g, '&nbsp;');
 
     if (escapeQuotes)
-      return span.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+      return span.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#x27;'); //"
     return span.innerHTML;
   }
 };

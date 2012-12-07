@@ -3,20 +3,14 @@
 
 'use strict';
 
-var Service;
-window.addEventListener('message', function ccwidget_onApplicationReady(evt) {
-  // Retrieve the service once application is ready
-  if (evt.data.type === 'applicationready') {
-    Service = getService(function ccwidget_onServiceReady(evt) {
-      // If the service is not ready, when ready it re-set the Service
-      // object and setup the widget.
-      Service = evt.detail.service;
-      setupWidget();
-    });
-    if (Service)
-      setupWidget();
-  }
+var Service = getService(function ccwidget_onServiceReady(evt) {
+  // If the service is not ready, when ready it re-set the Service
+  // object and setup the widget.
+  Service = evt.detail.service;
+  setupWidget();
 });
+if (Service)
+  setupWidget();
 
 // Cost Control widget is placed in the bottom of the utility tray, over the
 // quick settings buttons and is in charge of displaying current balance /
@@ -61,14 +55,25 @@ function setupWidget() {
     _setUpdatingMode(false);
   }
 
-  // Open the cost control & data usage application
-  function _openApp() {
-    var activity = new MozActivity({ name: 'costcontrol/open' });
+  // Open the balance view of the cost control & data usage application
+  function _openCCBalance() {
+    var activity = new MozActivity({ name: 'costcontrol/balance' });
+  }
+
+  // Open the telephony view of the cost control & data usage application
+  function _openCCTelephony() {
+    var activity = new MozActivity({ name: 'costcontrol/telephony' });
+  }
+
+    // Open the data usage view of the cost control & data usage application
+  function _openCCDataUsage() {
+    var activity = new MozActivity({ name: 'costcontrol/data_usage' });
   }
 
   // Specific setup for the balance view
   function _configureBalanceView() {
     _balanceView = document.getElementById('balance-view');
+    _balanceView.addEventListener('click', _openCCBalance);
     _balanceCredit = document.getElementById('balance-credit');
     _balanceCurrency = document.getElementById('balance-currency');
     _balanceTime = document.getElementById('balance-time');
@@ -94,6 +99,7 @@ function setupWidget() {
   // Specific setup for the teelphony view
   function _configureTelephonyView() {
     _telephonyView = document.getElementById('telephony-view');
+    _telephonyView.addEventListener('click', _openCCTelephony);
 
     // Update UI when some of these values change or...
     Service.settings.observe('smscount', _updateTelephonyUI);
@@ -111,6 +117,7 @@ function setupWidget() {
   function _configureDataUsageView() {
     _dataUsageLimitView = document.getElementById('datausage-limit-view');
     _dataUsageView = document.getElementById('datausage-view');
+    _dataUsageView.addEventListener('click', _openCCDataUsage);
 
     // Update UI when some of these values change or...
     Service.settings.observe('data_limit', _updateDataUsageUI);
@@ -124,12 +131,30 @@ function setupWidget() {
       }
     );
 
-    // ...when the utility tray shows.
-    window.addEventListener('message', function ccwidget_utilityTray(evt) {
-      if (evt.data.type === 'utilitytrayshow')
-        _updateDataUsageUI();
-    });
+    document.addEventListener('mozvisibilitychange',
+      function ccwidget_visibility(evt) {
+        if (!document.mozHidden)
+          Service.requestDataUsage();
+      }
+    );
+
   }
+
+  // Full mode for data usage when only data is available
+  function _adaptLayout(evt) {
+
+    _widget.classList.remove('full');
+    _leftPanel.setAttribute('aria-hidden', 'false');
+
+    var status = evt.detail;
+    if (!status.enabledFunctionalities.balance &&
+        !status.enabledFunctionalities.telephony) {
+
+      _widget.classList.add('full');
+      _leftPanel.setAttribute('aria-hidden', 'true');
+    }
+  };
+
 
   // Attach event listeners for manual updates
   function _configureWidget() {
@@ -143,9 +168,6 @@ function setupWidget() {
     _widget = document.getElementById('cost-control');
     _leftPanel = document.getElementById('left-panel');
     _rightPanel = document.getElementById('right-panel');
-
-    // Listener to open application
-    _widget.addEventListener('click', _openApp);
 
     _configureBalanceView();
     _configureTelephonyView();
@@ -164,21 +186,8 @@ function setupWidget() {
       _updateUI();
     });
 
-    // Full mode for data usage when only data is available
-    Service.onservicestatuschange = function ccwidget_adaptLayout(evt) {
-
-      _widget.classList.remove('full');
-      _leftPanel.setAttribute('aria-hidden', 'false');
-
-      var status = evt.detail;
-      if (!status.enabledFunctionalities.balance &&
-          !status.enabledFunctionalities.telephony) {
-
-        _widget.classList.add('full');
-        _leftPanel.setAttribute('aria-hidden', 'true');
-      }
-    };
-
+    Service.onservicestatuschange = _adaptLayout;
+    _adaptLayout({ detail: Service.getServiceStatus() });
     _updateUI();
   }
 

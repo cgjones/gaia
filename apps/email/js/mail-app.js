@@ -12,10 +12,24 @@ var App = {
   _init: function() {
     // If our password is bad, we need to pop up a card to ask for the updated
     // password.
-    MailAPI.onbadlogin = function(account) {
-      Cards.pushCard('setup-fix-password', 'default', 'animate',
-                     { account: account, restoreCard: Cards.activeCardIndex },
-                     'right');
+    MailAPI.onbadlogin = function(account, problem) {
+      switch (problem) {
+        case 'bad-user-or-pass':
+          Cards.pushCard('setup-fix-password', 'default', 'animate',
+                         { account: account, restoreCard: Cards.activeCardIndex },
+                         'right');
+          break;
+        case 'imap-disabled':
+          Cards.pushCard('setup-fix-gmail-imap', 'default', 'animate',
+                         { account: account, restoreCard: Cards.activeCardIndex },
+                         'right');
+          break;
+        case 'needs-app-pass':
+          Cards.pushCard('setup-fix-gmail-twofactor', 'default', 'animate',
+                         { account: account, restoreCard: Cards.activeCardIndex },
+                         'right');
+          break;
+      }
     };
 
     MailAPI.useLocalizedStrings({
@@ -28,6 +42,15 @@ var App = {
         replyTo: mozL10n.get('forward-header-reply-to'),
         to: mozL10n.get('forward-header-to'),
         cc: mozL10n.get('forward-header-cc')
+      },
+      folderNames: {
+        inbox: mozL10n.get('folder-inbox'),
+        sent: mozL10n.get('folder-sent'),
+        drafts: mozL10n.get('folder-drafts'),
+        trash: mozL10n.get('folder-trash'),
+        queue: mozL10n.get('folder-unsent'),
+        junk: mozL10n.get('folder-junk'),
+        archives: mozL10n.get('archives')
       }
     });
   },
@@ -176,7 +199,7 @@ if ('mozSetMessageHandler' in window.navigator) {
                                         function actHandle(activity) {
     var activityName = activity.source.name;
     if (activityName === 'share') {
-      var attachmentUrls = activity.source.data.urls,
+      var attachmentBlobs = activity.source.data.blobs,
           attachmentNames = activity.source.data.filenames;
     } else if (activityName === 'new') {
       var [to, subject, body, cc, bcc] = queryURI(activity.source.data.URI);
@@ -219,32 +242,14 @@ if ('mozSetMessageHandler' in window.navigator) {
             composer.cc = cc;
           if (bcc)
             composer.bcc = bcc;
-          if (attachmentUrls) {
-            for (var iUrl = 0; iUrl < attachmentUrls.length; iUrl++) {
-              // our data URIs look like:
-              // data:image/png;base64,CONTENT
-              // 012345        012345678
-              var url = attachmentUrls[iUrl],
-                  filename = attachmentNames[iUrl],
-                  idxSemicolon = url.indexOf(';'),
-                  mimeType = url.substring(5, idxSemicolon),
-                  imageString = url.substring(idxSemicolon + 8),
-                  imageData = window.atob(imageString),
-                  imageArr = new Uint8Array(imageData.length);
-              for (var i = 0; i < imageData.length; i++) {
-                imageArr[i] = imageData.charCodeAt(i);
-              }
-              var blob = new Blob([imageArr],
-                                  { type: mimeType });
+          if (attachmentBlobs) {
+            for (var iBlob = 0; iBlob < attachmentBlobs.length; iBlob++) {
               composer.addAttachment({
-                name: filename,
-                blob: blob
+                name: attachmentNames[iBlob],
+                blob: attachmentBlobs[iBlob]
               });
             }
           }
-          // TODO: We may need to add attachments here:
-          // if (attachments)
-          //   composer.attachments = attachments;
           Cards.pushCard('compose',
             'default', 'immediate', { composer: composer,
             activity: (activityName == 'share' ? activity : null) });

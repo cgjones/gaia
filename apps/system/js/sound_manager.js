@@ -5,10 +5,18 @@
 
 (function() {
   window.addEventListener('volumeup', function() {
-    changeVolume(1);
+    if (onBTEarphoneConnected() && onCall()) {
+      changeVolume(1, 'bt_sco');
+    } else {
+      changeVolume(1);
+    }
   });
   window.addEventListener('volumedown', function() {
-    changeVolume(-1);
+    if (onBTEarphoneConnected() && onCall()) {
+      changeVolume(-1, 'bt_sco');
+    } else {
+      changeVolume(-1);
+    }
   });
 
   // This event is generated in shell.js in response to bluetooth headset.
@@ -16,29 +24,104 @@
   // pressing its volume-up/volume-down buttons.
   window.addEventListener('mozChromeEvent', function(e) {
     var type = e.detail.type;
-    if (type == 'volumeset') {
-      changeVolume(e.detail.value - currentVolume);
+    if (type == 'bluetooth-volumeset') {
+      changeVolume(e.detail.value - currentVolume['bt_sco'], 'bt_sco');
     }
   });
 
-  var currentVolume = 0.5;
+  // XXX: This workaround could be removed once 
+  // https://bugzilla.mozilla.org/show_bug.cgi?id=811222 landed
+  function onCall() {
+    var telephony = window.navigator.mozTelephony;
+    if (!telephony)
+      return false;
+
+    return telephony.calls.some(function callIterator(call) {
+        return (call.state == 'connected');
+    });
+  };
+
+  // XXX: This workaround could be removed once 
+  // https://bugzilla.mozilla.org/show_bug.cgi?id=811222 landed
+  function onRing() {
+    var telephony = window.navigator.mozTelephony;
+    if (!telephony)
+      return false;
+
+    return telephony.calls.some(function callIterator(call) {
+        return (call.state == 'incoming');
+    });
+  }
+  
+  // XXX: This workaround could be removed once 
+  // https://bugzilla.mozilla.org/show_bug.cgi?id=811222 landed
+  function onContentPlaying() {
+    return false;
+  }
+
+  function onBTEarphoneConnected() {
+    var bluetooth = navigator.mozBluetooth;
+    if (!bluetooth)
+      return false;
+
+    // 0x111E is for querying earphone type.
+    return navigator.mozBluetooth.isConnected(0x111E);
+  };
+
+  // Platform doesn't provide the maximum value of each channel
+  // therefore, hard code here.
+  var MAX_VOLUME = {
+    'alarm': 15,
+    'notification': 15,
+    'telephony': 5,
+    'content': 15,
+    'bt_sco': 15
+  };
+
+  // Please refer https://wiki.mozilla.org/WebAPI/AudioChannels > Settings
+  var currentVolume = {
+    'alarm': 15,
+    'notification': 15,
+    'telephony': 5,
+    'content': 15,
+    'bt_sco': 15
+  };
   var pendingRequestCount = 0;
 
   // We have three virtual states here:
   // OFF -> VIBRATION -> MUTE
   var muteState = 'OFF';
 
-  SettingsListener.observe('audio.volume.master', 5, function(volume) {
-    if (pendingRequestCount)
-      return;
+  for (var channel in currentVolume) {
+    var setting = 'audio.volume.' + channel;
+    SettingsListener.observe(setting, 5, function(volume) {
+      if (pendingRequestCount)
+        return;
 
-    currentVolume = volume * 10;
-  });
+      var max = MAX_VOLUME[channel];
+      currentVolume[channel] = parseInt(Math.max(0, Math.min(max, volume)), 10);
+    });
+  }
 
   var activeTimeout = 0;
-  function changeVolume(delta) {
-    if (currentVolume == 0 ||
-        ((currentVolume + delta) <= 0)) {
+
+  function changeVolume(delta, channel) {
+    // XXX: These status-checking functions could be removed when
+    // Bug 811222 landed
+    if (!channel) {
+      if (onContentPlaying()) {
+        channel = 'content';
+      } else if (onRing()) {
+        channel = 'notification';
+      } else if (onCall()) {
+        channel = 'telephony';
+      } else {
+        channel = 'notification';
+      }
+    }
+
+    if (currentVolume[channel] == 0 ||
+        ((currentVolume[channel] + delta) <= 0)) {
       if (delta < 0) {
         if (muteState == 'OFF') {
           muteState = 'VIBRATION';
@@ -55,8 +138,9 @@
       }
     }
 
-    var volume = currentVolume + delta;
-    currentVolume = volume = Math.max(0, Math.min(10, volume));
+    var volume = currentVolume[channel] + delta;
+    
+    currentVolume[channel] = volume = Math.max(0, Math.min(MAX_VOLUME[channel], volume));
 
     var overlay = document.getElementById('system-overlay');
     var notification = document.getElementById('volume');
@@ -108,9 +192,14 @@
       return;
 
     pendingRequestCount++;
-    var req = SettingsListener.getSettingsLock().set({
-      'audio.volume.master': currentVolume / 10
-    });
+    var req;
+
+    notification.dataset.channel = channel;
+
+    var settingObject = {};
+    settingObject['audio.volume.' + channel] = volume;
+      
+    req = SettingsListener.getSettingsLock().set(settingObject);  
 
     req.onsuccess = function onSuccess() {
       pendingRequestCount--;

@@ -1,6 +1,6 @@
 requireApp('calendar/test/unit/helper.js', function() {
   requireLib('timespan.js');
-  requireLib('ordered_map.js');
+  requireLib('utils/ordered_map.js');
   requireLib('templates/day.js');
   requireLib('templates/week.js');
   requireLib('views/day_based.js');
@@ -58,6 +58,18 @@ suite('views/week_child', function() {
     var out = subject._renderHeader();
     assert.ok(out, 'html');
     assert.include(out, format, 'has format');
+  });
+
+  test('#_assignPosition', function() {
+      var busy = Factory('busytime', {
+        startDate: new Date(2012, 0, 1, 0, 15),
+        endDate: new Date(2012, 0, 1, 3, 30)
+      });
+      var el = document.createElement('div');
+      subject.date = new Date(2012, 0, 1);
+      subject._assignPosition(busy, el);
+
+      assert.equal(el.style.height, 'calc(325% + 1.5px)', 'height');
   });
 
   test('#create', function() {

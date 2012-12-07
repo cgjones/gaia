@@ -35,6 +35,7 @@ var TonePlayer = {
      return;
 
    this._audio = new Audio();
+   this._audio.mozAudioChannelType = 'normal';
    this._audio.mozSetup(2, this._sampleRate);
   },
 
@@ -276,21 +277,6 @@ var KeypadManager = {
           }
         }
       });
-
-      var reopenApp = function reopenApp() {
-        navigator.mozApps.getSelf().onsuccess = function getSelfCB(evt) {
-          var app = evt.target.result;
-          app.launch('dialer');
-        };
-      }
-
-      activity.onsuccess = function() {
-        reopenApp();
-      };
-      activity.onerror = function() {
-        reopenApp();
-      };
-
     } catch (e) {
       console.log('WebActivities unavailable? : ' + e);
     }
@@ -412,7 +398,7 @@ var KeypadManager = {
       }
 
       // Manage long press
-      if (key == '0' || key == 'delete') {
+      if ((key == '0' && !this._onCall) || key == 'delete') {
         this._holdTimer = setTimeout(function(self) {
           if (key == 'delete') {
             self._phoneNumber = '';
@@ -499,8 +485,18 @@ var KeypadManager = {
 
   _updateAdditionalContactInfoView:
     function kh__updateAdditionalContactInfoView() {
-    var view = CallScreen.activeCall.querySelector('.additionalContactInfo');
-    view.textContent = this._additionalContactInfo;
+    var phoneNumberView = CallScreen.activeCall.querySelector('.number');
+    var additionalview = CallScreen.activeCall.querySelector(
+      '.additionalContactInfo');
+    if (!this._additionalContactInfo || this._additionalContactInfo === '') {
+      additionalview.textContent = '';
+      additionalview.classList.add('noAdditionalContactInfo');
+      phoneNumberView.classList.add('noAdditionalContactInfo');
+    } else {
+      phoneNumberView.classList.remove('noAdditionalContactInfo');
+      additionalview.classList.remove('noAdditionalContactInfo');
+      additionalview.textContent = this._additionalContactInfo;
+    }
   },
 
   restoreAdditionalContactInfo: function kh_restoreAdditionalContactInfo() {
@@ -518,10 +514,10 @@ var KeypadManager = {
       return;
      }
      var transaction = settings.createLock();
-     var request = transaction.get('ro.moz.ril.iccmbdn');
+     var request = transaction.get('ril.iccInfo.mbdn');
      request.onsuccess = function() {
-       if (request.result['ro.moz.ril.iccmbdn']) {
-         CallHandler.call(request.result['ro.moz.ril.iccmbdn']);
+       if (request.result['ril.iccInfo.mbdn']) {
+         CallHandler.call(request.result['ril.iccInfo.mbdn']);
        }
      };
      request.onerror = function() {};

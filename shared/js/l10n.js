@@ -1,4 +1,4 @@
-/* -*- Mode: Java; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- /
+/* -*- Mode: js; js-indent-level: 2; indent-tabs-mode: nil -*- */
 /* vim: set shiftwidth=2 tabstop=2 autoindent cindent expandtab: */
 
 'use strict';
@@ -745,6 +745,8 @@
       str = gL10nData[key + '[two]'][prop];
     } else if ((key + index) in gL10nData) {
       str = gL10nData[key + index][prop];
+    } else if ((key + '[other]') in gL10nData) {
+      str = gL10nData[key + '[other]'][prop];
     }
 
     return str;
@@ -761,7 +763,7 @@
     if (!data) {
       //consoleWarn('#' + key + ' missing for [' + gLanguage + ']');
       // XXX temporary log, to be removed after the string freeze
-      console.warn('[l10n] #' + key + ' is undefined.');
+      consoleWarn('[l10n] #' + key + ' is undefined.');
     }
 
     /** This is where l10n expressions should be processed.
@@ -815,7 +817,7 @@
 
       var arg = match[1];
       var sub = '';
-      if (arg in args) {
+      if (args && arg in args) {
         sub = args[arg];
       } else if (arg in gL10nData) {
         sub = gL10nData[arg][gTextProp];
@@ -842,7 +844,7 @@
     if (!data) {
       //consoleWarn('#' + l10n.id + ' missing for [' + gLanguage + ']');
       // XXX temporary log, to be removed after the string freeze
-      console.warn('[l10n] #' + l10n.id + ' is undefined.');
+      consoleWarn('[l10n] #' + l10n.id + ' is undefined.');
       return;
     }
 

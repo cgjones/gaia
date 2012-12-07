@@ -1,6 +1,7 @@
 (function(window) {
   var idb = window.indexedDB;
-  const VERSION = 9;
+  const VERSION = 12;
+  var debug = Calendar.debug('database');
 
   var store = {
     events: 'events',
@@ -8,7 +9,8 @@
     calendars: 'calendars',
     busytimes: 'busytimes',
     settings: 'settings',
-    alarms: 'alarms'
+    alarms: 'alarms',
+    icalComponents: 'icalComponents'
   };
 
   Object.freeze(store);
@@ -18,6 +20,8 @@
     this._stores = Object.create(null);
 
     Calendar.Responder.call(this);
+
+    this._upgradeOperations = [];
   }
 
   Db.prototype = {
@@ -59,10 +63,14 @@
 
       function complete() {
         if (self.hasUpgraded && self.oldVersion < 8) {
-          self._setupDefaults(callback);
+          self._setupDefaults(function(err) {
+            callback(err);
+            self.emit('loaded');
+          });
         } else {
           if (callback) {
             callback();
+            self.emit('loaded');
           }
         }
       }
@@ -110,26 +118,54 @@
     /**
      * Opens connection to database.
      *
-     * @param {Function} callback first argument is error, second
+     * @param {Numeric} [version] version of database to open.
+     *                            default to current version.
+     *                            Should _only_ be used in testing.
+     *
+     * @param {Function} [callback] first argument is error, second
      *                            is result of operation or null
      *                            in the error case.
      */
-    open: function(callback) {
-      var req = idb.open(this.name, this.version);
+    open: function(version, callback) {
+      if (typeof(version) === 'function') {
+        callback = version;
+        version = VERSION;
+      }
+
+      var req = idb.open(this.name, version);
+      this.version = version;
+
       var self = this;
 
       req.onsuccess = function(event) {
         self.isOpen = true;
         self.connection = req.result;
 
-        callback(null, self);
-        self.emit('open', self);
+        // if we have pending upgrade operations
+        if (self._upgradeOperations.length) {
+          var pending = self._upgradeOperations.length;
+
+          function next() {
+            if (!(--pending)) {
+              callback(null, self);
+              self.emit('open', self);
+            }
+          }
+
+          var operation;
+          while ((operation = self._upgradeOperations.shift())) {
+            operation.call(self, next);
+          }
+        } else {
+          callback(null, self);
+          self.emit('open', self);
+        }
       };
 
       req.onblocked = function(error) {
         callback(error, null);
         self.emit('error', error);
-      }
+      };
 
       req.onupgradeneeded = function(event) {
         self._handleVersionChange(req.result, event);
@@ -166,8 +202,7 @@
       this.oldVersion = curVersion;
       this.upgradedVersion = newVersion;
 
-      for (; curVersion <= newVersion; curVersion++) {
-
+      for (; curVersion < newVersion; curVersion++) {
         // if version is < 7 then it was from pre-production
         // db and we can safely discard its information.
         if (curVersion < 6) {
@@ -244,12 +279,27 @@
             'busytimeId',
             { unique: false, multiEntry: false }
           );
+        } else if (curVersion === 9) {
+          var icalComponents = db.createObjectStore(
+            store.icalComponents, { keyPath: 'eventId', autoIncrement: false }
+          );
+
+          // only upgrade the events when this is an existing
+          // database. When the value is 0 that indicates this
+          // is the very first time the user is booting up calendar.
+          if (this.oldVersion !== 0) {
+            this._upgradeOperations.push(this._upgradeMoveICALComponents);
+          }
+        } else if (curVersion === 10) {
+          if (this.oldVersion !== 0) {
+            this._upgradeOperations.push(this._resetCaldavAccounts);
+          }
+        } else if (curVersion === 11) {
+          if (this.oldVersion !== 0) {
+            this._upgradeOperations.push(this._upgradeAccountUrls);
+          }
         }
       }
-    },
-
-    get version() {
-      return VERSION;
     },
 
     get store() {
@@ -327,17 +377,187 @@
       req.onblocked = function(e) {
         // improve interface
         callback(new Error('blocked'));
-      }
+      };
 
       req.onsuccess = function(event) {
         callback(null, event);
-      }
+      };
 
       req.onerror = function(event) {
         callback(event, null);
-      }
-    }
+      };
+    },
 
+    /** private db upgrade methods **/
+
+    /**
+     * Reset all caldav accounts removing all events,
+     * calendars, alarms and components.
+     * Then triggering resync.
+     *
+     * @param {Function} callback fired on completion.
+     */
+    _resetCaldavAccounts: function(callback) {
+      debug('enter reset caldav');
+
+      var trans = this.transaction(
+        [
+          store.accounts, store.calendars,
+          store.events, store.busytimes,
+          store.alarms, store.icalComponents
+        ],
+        'readwrite'
+      );
+
+      this.once('loaded', function() {
+        if ('syncController' in Calendar.App && navigator.onLine) {
+          Calendar.App.syncController.all(function() {
+            debug('begin resync after reset');
+          });
+        } else {
+          debug('skipping resync');
+        }
+      });
+
+      var accountObjectStore = trans.objectStore(store.accounts);
+      var calendarObjectStore = trans.objectStore(store.calendars);
+      var calendarStore = this.getStore('Calendar');
+
+      trans.onerror = function(event) {
+        debug('ERROR', event.target.error.name);
+        callback(event.target.error);
+      };
+
+      trans.oncomplete = function() {
+        callback();
+      };
+
+      var caldavAccounts = Object.create(null);
+
+      function fetchCalendars() {
+        calendarObjectStore.mozGetAll().onsuccess = function(event) {
+          var result = event.target.result;
+          var i = 0;
+          var len = result.length;
+
+          for (; i < len; i++) {
+            var calendar = result[i];
+
+            if (calendar.accountId in caldavAccounts) {
+              debug('reset calendar:', calendar);
+              calendarStore.remove(calendar._id, trans);
+            }
+          }
+        };
+      }
+
+      accountObjectStore.mozGetAll().onsuccess = function(event) {
+        var result = event.target.result;
+        var i = 0;
+        var len = result.length;
+        var hasCaldav = false;
+
+        for (; i < len; i++) {
+          var account = result[i];
+
+          if (account.providerType === 'Caldav') {
+            hasCaldav = true;
+            debug('reset account', account);
+            caldavAccounts[account._id] = true;
+          }
+
+          if (hasCaldav) {
+            fetchCalendars();
+          }
+        }
+      };
+    },
+
+    _upgradeAccountUrls: function(callback) {
+      var trans = this.transaction(store.accounts, 'readwrite');
+
+      trans.oncomplete = function() {
+        callback();
+      }
+
+      trans.onerror = function(event) {
+        console.error('Error updating account urls');
+        callback(event.error.name);
+      }
+
+      var accountStore = trans.objectStore(store.accounts);
+      var req = accountStore.openCursor();
+
+      req.onsuccess = function upgradeUrls(e) {
+        var cursor = e.target.result;
+        if (cursor) {
+          var value = cursor.value;
+          var preset = value.preset;
+
+          value.calendarHome = value.url;
+
+          // url is removed we have two urls now so
+          // it would be unnecessarily confusing.
+          delete value.url;
+
+          // when possible we calculate the correct
+          // entrypoint (from our presets) if the preset
+          // is missing then we fallback to the original url.
+          if (preset in Calendar.Presets) {
+            var presetData = Calendar.Presets[preset].options;
+
+            // not using "in" intentionally.
+            if (presetData && presetData.entrypoint) {
+              value.entrypoint = presetData.entrypoint;
+            }
+          }
+
+          if (!value.entrypoint) {
+            value.entrypoint = value.calendarHome;
+          }
+          cursor.update(value);
+          cursor.continue();
+        }
+      };
+    },
+
+    _upgradeMoveICALComponents: function(callback) {
+      var trans = this.transaction(
+        [store.events, store.icalComponents],
+        'readwrite'
+      );
+
+      trans.onerror = function() {
+        console.error('Error while upgrading ical components');
+        callback();
+      };
+
+      trans.oncomplete = function() {
+        callback();
+      };
+
+      var eventStore = trans.objectStore(store.events);
+      var componentStore = trans.objectStore(store.icalComponents);
+
+      var req = eventStore.openCursor();
+
+      req.onsuccess = function upgradeCursor(e) {
+        var cursor = e.target.result;
+        if (cursor) {
+          var value = cursor.value;
+
+          if (value && value.remote.icalComponent && !value.parentId) {
+            var component = value.remote.icalComponent;
+            delete value.remote.icalComponent;
+
+            componentStore.add({ eventId: value._id, data: component });
+            cursor.update(value);
+          }
+
+          cursor.continue();
+        }
+      };
+    }
   };
 
   Calendar.Db = Db;

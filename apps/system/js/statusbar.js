@@ -3,9 +3,14 @@
 
 'use strict';
 
-var _ = navigator.mozL10n.get;
-
 var StatusBar = {
+  /* all elements that are children nodes of the status bar */
+  ELEMENTS: ['notification', 'time',
+    'battery', 'wifi', 'data', 'flight-mode', 'signal', 'network-activity',
+    'tethering', 'alarm', 'bluetooth', 'mute', 'headphones',
+    'recording', 'sms', 'geolocation', 'usb', 'label', 'system-downloads',
+    'call-forwarding'],
+
   /* Timeout for 'recently active' indicators */
   kActiveIndicatorTimeout: 60 * 1000,
 
@@ -42,9 +47,18 @@ var StatusBar = {
 
   headphonesActive: false,
 
-  /* For other app to acquire */
+  /**
+   * this keeps how many current installs/updates we do
+   * it triggers the icon "systemDownloads"
+   */
+  systemDownloadsCount: 0,
+
+  /* For other modules to acquire */
   get height() {
-    if (this.screen.classList.contains('active-statusbar')) {
+    if (this.screen.classList.contains('fullscreen-app') ||
+        document.mozFullScreen) {
+      return 0;
+    } else if (this.screen.classList.contains('active-statusbar')) {
       return this.attentionBar.offsetHeight;
     } else {
       return this.element.offsetHeight;
@@ -64,7 +78,8 @@ var StatusBar = {
       'tethering.wifi.connectedClients': ['tethering'],
       'tethering.usb.connectedClients': ['tethering'],
       'audio.volume.master': ['mute'],
-      'alarm.enabled': ['alarm']
+      'alarm.enabled': ['alarm'],
+      'ril.cf.unconditional.enabled': ['callForwarding']
     };
 
     var self = this;
@@ -96,6 +111,7 @@ var StatusBar = {
     // Listen to 'moztimechange'
     window.addEventListener('moztimechange', this);
 
+    this.systemDownloadsCount = 0;
     this.setActive(true);
   },
 
@@ -113,6 +129,10 @@ var StatusBar = {
 
       case 'voicechange':
         this.update.signal.call(this);
+        this.update.label.call(this);
+        break;
+
+      case 'iccinfochange':
         this.update.label.call(this);
         break;
 
@@ -175,6 +195,7 @@ var StatusBar = {
       var conn = window.navigator.mozMobileConnection;
       if (conn) {
         conn.addEventListener('voicechange', this);
+        conn.addEventListener('iccinfochange', this);
         conn.addEventListener('datachange', this);
         this.update.signal.call(this);
         this.update.data.call(this);
@@ -202,6 +223,7 @@ var StatusBar = {
       var conn = window.navigator.mozMobileConnection;
       if (conn) {
         conn.removeEventListener('voicechange', this);
+        conn.removeEventListener('iccinfochange', this);
         conn.removeEventListener('datachange', this);
       }
 
@@ -228,8 +250,17 @@ var StatusBar = {
       }
 
       var voice = conn.voice;
+      var iccInfo = conn.iccInfo;
       var network = voice.network;
       l10nArgs.operator = network.shortName || network.longName;
+
+      if (iccInfo.isDisplaySpnRequired && iccInfo.spn) {
+        if (iccInfo.isDisplayNetworkNameRequired) {
+          l10nArgs.operator = l10nArgs.operator + ' ' + iccInfo.spn;
+        } else {
+          l10nArgs.operator = iccInfo.spn;
+        }
+      }
 
       if (network.mcc == 724 &&
         voice.cell && voice.cell.gsmLocationAreaCode) {
@@ -249,6 +280,7 @@ var StatusBar = {
 
     time: function sb_updateTime() {
       // Schedule another clock update when a new minute rolls around
+      var _ = navigator.mozL10n.get;
       var f = new navigator.mozL10n.DateTimeFormat();
       var now = new Date();
       var sec = now.getSeconds();
@@ -257,8 +289,7 @@ var StatusBar = {
       this._clockTimer =
         window.setTimeout((this.update.time).bind(this), (59 - sec) * 1000);
 
-      this.icons.time.textContent =
-          f.localeFormat(now, _('statusbarTimeFormat'));
+      this.icons.time.textContent = f.localeFormat(now, _('shortTimeFormat'));
 
       var label = this.icons.label;
       var l10nArgs = JSON.parse(label.dataset.l10nArgs || '{}');
@@ -476,6 +507,16 @@ var StatusBar = {
     headphones: function sb_updateHeadphones() {
       var icon = this.icons.headphones;
       icon.hidden = !this.headphonesActive;
+    },
+
+    systemDownloads: function sb_updatesystemDownloads() {
+      var icon = this.icons.systemDownloads;
+      icon.hidden = (this.systemDownloadsCount === 0);
+    },
+
+    callForwarding: function sb_updateCallForwarding() {
+      var icon = this.icons.callForwarding;
+      icon.hidden = !this.settingValues['ril.cf.unconditional.enabled'];
     }
   },
 
@@ -494,20 +535,29 @@ var StatusBar = {
     this.icons.notification.dataset.unread = unread;
   },
 
+  incSystemDownloads: function sb_incSystemDownloads() {
+    this.systemDownloadsCount++;
+    this.update.systemDownloads.call(this);
+  },
+
+  decSystemDownloads: function sb_decSystemDownloads() {
+    if (--this.systemDownloadsCount < 0) {
+      this.systemDownloadsCount = 0;
+    }
+
+    this.update.systemDownloads.call(this);
+  },
+
   getAllElements: function sb_getAllElements() {
     // ID of elements to create references
-    var elements = ['notification', 'time',
-    'battery', 'wifi', 'data', 'flight-mode', 'signal', 'network-activity',
-    'tethering', 'alarm', 'bluetooth', 'mute', 'headphones',
-    'recording', 'sms', 'geolocation', 'usb', 'label'];
 
     var toCamelCase = function toCamelCase(str) {
       return str.replace(/\-(.)/g, function replacer(str, p1) {
         return p1.toUpperCase();
       });
-    }
+    };
 
-    elements.forEach((function createElementRef(name) {
+    this.ELEMENTS.forEach((function createElementRef(name) {
       this.icons[toCamelCase(name)] =
         document.getElementById('statusbar-' + name);
     }).bind(this));

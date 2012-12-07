@@ -76,6 +76,12 @@ var Recents = {
       getElementById('add-contact-action-menu');
   },
 
+  get callMenuItem() {
+    delete this.callMenuItem;
+    return this.callMenuItem = document.
+      getElementById('call-menuitem');
+  },
+
   get createNewContactMenuItem() {
     delete this.createNewContactMenuItem;
     return this.createNewContactMenuItem = document.
@@ -133,9 +139,13 @@ var Recents = {
       this.recentsContainer.addEventListener('click',
         this.click.bind(this));
     }
+    if (this.callMenuItem) {
+      this.callMenuItem.addEventListener('click',
+        this.call.bind(this));
+    }
     if (this.addContactActionMenu) {
       this.addContactActionMenu.addEventListener('submit',
-        this.addContactSubmit.bind(this));
+        this.formSubmit.bind(this));
     }
     if (this.createNewContactMenuItem) {
       this.createNewContactMenuItem.addEventListener('click',
@@ -185,7 +195,7 @@ var Recents = {
 
   filter: function re_filter(event) {
     // do nothing if selected tab is same that current
-    if (event.target.classList.contains('selected')) {
+    if (event.target.parentNode.classList.contains('selected')) {
       return;
     }
     var action = event.target.dataset.action;
@@ -278,7 +288,8 @@ var Recents = {
     this.headerEditModeText.textContent = _('edit-selected',
                                             {n: itemsCounter});
     this.recentsIconDelete.classList.remove('disabled');
-    this.deselectAllThreads.classList.remove('disabled');
+    this.deselectAllThreads.removeAttribute('disabled');
+    this.selectAllThreads.setAttribute('disabled', 'disabled');
   },
 
   deselectSelectedEntries: function re_deselectSelectedEntries() {
@@ -290,14 +301,31 @@ var Recents = {
     }
     this.headerEditModeText.textContent = _('edit');
     this.recentsIconDelete.classList.add('disabled');
-    this.deselectAllThreads.classList.add('disabled');
+    this.selectAllThreads.removeAttribute('disabled');
+    this.selectAllThreads.textContent = _('selectAll');
+    this.deselectAllThreads.setAttribute('disabled', 'disabled');
   },
 
   executeDeletion: function re_executeDeletion() {
-    var response = window.confirm(_('confirm-deletion'));
-    if (!response) {
-      return;
-    }
+    var self = this;
+    ConfirmDialog.show(
+      null,
+      _('confirm-deletion'),
+      {
+        title: _('cancel'),
+        callback: function() {
+          ConfirmDialog.hide();
+        }
+      },
+      {
+        title: _('delete'),
+        isDanger: true,
+        callback: self.deleteSelectedRecents.bind(self)
+      }
+    );
+  },
+
+  deleteSelectedRecents: function re_deleteSelectedRecents() {
     var selectedEntries = this.getSelectedEntries(),
         selectedLength = selectedEntries.length,
         entriesInGroup, entriesInGroupLength;
@@ -315,6 +343,7 @@ var Recents = {
     RecentsDBManager.deleteList.call(RecentsDBManager,
       itemsToDelete, function deleteCB() {
         RecentsDBManager.get(function(recents) {
+          ConfirmDialog.hide();
           self.render(recents);
           document.body.classList.remove('recents-edit');
         });
@@ -399,18 +428,12 @@ var Recents = {
     }
 
     if (!document.body.classList.contains('recents-edit')) {
-      if (target.classList.contains('call-log-contact-photo')) {
-        event.stopPropagation();
-        var contactId = target.parentNode.dataset['contactId'];
-        var phoneNumber = target.parentNode.dataset.num.trim();
-        Recents.viewOrCreate(contactId, phoneNumber);
-      } else if (target.classList.contains('log-item')) {
-        var number = target.dataset.num.trim();
-        if (number) {
-          this.updateLatestVisit();
-          CallHandler.call(number);
-        }
+      var contactId = null;
+      var phoneNumber = target.dataset.num.trim();
+      if (target.classList.contains('isContact')) {
+        contactId = target.dataset.contactId;
       }
+      Recents.viewOrCreate(contactId, phoneNumber);
     } else {
       //Edit mode
       if (target.classList.contains('call-log-contact-photo')) {
@@ -420,17 +443,26 @@ var Recents = {
       if (count == 0) {
         this.headerEditModeText.textContent = _('edit');
         this.recentsIconDelete.classList.add('disabled');
-        this.deselectAllThreads.classList.add('disabled');
+        this.deselectAllThreads.setAttribute('disabled', 'disabled');
+        this.selectAllThreads.removeAttribute('disabled');
+        this.selectAllThreads.textContent = _('selectAll');
       } else {
         this.headerEditModeText.textContent = _('edit-selected',
                                                 {n: count});
         this.recentsIconDelete.classList.remove('disabled');
-        this.deselectAllThreads.classList.remove('disabled');
+        this.deselectAllThreads.removeAttribute('disabled');
+        var itemsShown = document.querySelectorAll('.log-item:not(.hide)');
+        var itemsCounter = itemsShown.length;
+        if (itemsCounter === count) {
+          this.selectAllThreads.setAttribute('disabled', 'disabled');
+        } else {
+          this.selectAllThreads.removeAttribute('disabled');
+        }
       }
     }
   },
 
-  addContactSubmit: function re_addContactSubmit(event) {
+  formSubmit: function formSubmit(event) {
     return false;
   },
 
@@ -452,6 +484,14 @@ var Recents = {
     this.addContactActionMenu.classList.remove('visible');
   },
 
+  call: function re_call() {
+    if (this.newPhoneNumber) {
+      this.updateLatestVisit();
+      CallHandler.call(this.newPhoneNumber);
+    }
+    this.addContactActionMenu.classList.remove('visible');
+  },
+
   cancelActionMenu: function re_cancelActionMenu() {
     this.addContactActionMenu.classList.remove('visible');
   },
@@ -461,6 +501,7 @@ var Recents = {
     var src = '/contacts/index.html';
     if (contactId) {
       src += '#view-contact-details?id=' + contactId;
+      src += '&tel=' + phoneNumber;
       var timestamp = new Date().getTime();
       contactsIframe.src = src + '&timestamp=' + timestamp;
       window.location.hash = '#contacts-view';
@@ -487,6 +528,7 @@ var Recents = {
         classes += 'icon-incoming';
       }
     }
+
     var entry =
       '<li class="log-item ' + highlight +
       '  " data-num="' + recent.number +
@@ -505,16 +547,16 @@ var Recents = {
       '    <div class="grid-cell grid-v-align">' +
       '      <section class="primary-info">' +
       '        <span class="primary-info-main ellipsis">' +
-                 recent.number +
+                 (recent.number || _('unknown')) +
       '        </span>' +
       '        <span class="entry-count">' +
       '        </span>' +
       '      </section>' +
-      '      <section class="secondary-info">' +
+      '      <section class="secondary-info ellipsis">' +
       '        <span class="call-time">' +
                  Utils.prettyDate(recent.date) +
       '        </span>' +
-      '        <span class="call-additional-info ellipsis">' +
+      '        <span class="call-additional-info">' +
       '        </span>' +
       '      </section>' +
       '    </div>' +
@@ -577,13 +619,13 @@ var Recents = {
       self._missedViewGroupingPending = true;
       if (self.missedFilter.classList.contains('selected')) {
         self.missedFilter.classList.remove('selected');
-        event.target = self.missedFilter;
+        event.target = self.missedFilter.children[0];
         self.filter(event);
         self.missedFilter.classList.add('selected');
         self.allFilter.classList.remove('selected');
       } else {
         self.allFilter.classList.remove('selected');
-        event.target = self.allFilter;
+        event.target = self.allFilter.children[0];
         self.filter(event);
         self.missedFilter.classList.remove('selected');
         self.allFilter.classList.add('selected');
@@ -616,6 +658,9 @@ var Recents = {
         var photoURL = URL.createObjectURL(contact.photo[0]);
         contactPhoto.style.backgroundImage = 'url(' + photoURL + ')';
         logItem.classList.add('contact-photo-available');
+      } else {
+        contactPhoto.style.backgroundImage = null;
+        logItem.classList.remove('contact-photo-available');
       }
       var phoneNumberAdditionalInfo = Utils.getPhoneNumberAdditionalInfo(
         matchingTel, contact);
@@ -737,7 +782,7 @@ var Recents = {
     if (!isNaN(primaryInfoNodeWidth) && !isNaN(primaryInfoMainNodeWidth) &&
       !isNaN(entryCountNodeWidth) &&
       (primaryInfoNodeWidth < primaryInfoMainNodeWidth + entryCountNodeWidth)) {
-      var newWidth = primaryInfoNodeWidth - entryCountNodeWidth - 4;
+      var newWidth = primaryInfoNodeWidth - entryCountNodeWidth - 5;
       primaryInfoMainNode.classList.add('ellipsed');
       primaryInfoMainNode.style.width = newWidth + 'px';
     }

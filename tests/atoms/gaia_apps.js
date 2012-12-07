@@ -69,11 +69,58 @@ var GaiaApps = {
     }
   },
 
-  /**
-   * Launches app with the specified name (e.g., 'Calculator'); returns the
-   * app frame's id if successful, false if the app can't be found, or times
-   * out if the app frame can't be found after launching the app.
-   */
+  // Returns the number of running apps.
+  numRunningApps: function() {
+    let count = 0;
+    let runningApps = window.wrappedJSObject.WindowManager.getRunningApps();
+    for (let origin in runningApps) {
+      count++;
+    }
+    return count;
+  },
+
+  // Kills all running apps, except the homescreen.
+  killAll: function() {
+    let originsToClose = [];
+    let that = this;
+
+    let runningApps = window.wrappedJSObject.WindowManager.getRunningApps();
+    for (let origin in runningApps) {
+      if (origin.indexOf('homescreen') == -1) {
+        originsToClose.push(origin);
+     }
+    }
+
+    if (!originsToClose.length) {
+      marionetteScriptFinished(true);
+      return;
+    }
+
+    window.addEventListener('appterminated', function gt_onAppTerminated(evt) {
+      let index = originsToClose.indexOf(evt.detail.origin);
+      if (index > -1) {
+        originsToClose.splice(index, 1);
+      }
+      if (!originsToClose.length) {
+        window.removeEventListener('appterminated', gt_onAppTerminated);
+        // Even after the 'appterminated' event has been fired for an app,
+        // it can still exist in the apps list, so wait until 1 or fewer
+        // apps are running (since we don't close the homescreen app).
+        waitFor(
+          function() { marionetteScriptFinished(true); },
+          function() { return that.numRunningApps() <= 1; }
+        );
+      }
+    });
+
+    originsToClose.slice(0).forEach(function(origin) {
+      window.wrappedJSObject.WindowManager.kill(origin);
+    });
+  },
+
+  // Launches app with the specified name (e.g., 'Calculator'); returns the
+  // app frame's id if successful, false if the app can't be found, or times
+  // out if the app frame can't be found after launching the app.
   launchWithName: function(name) {
     GaiaApps.locateWithName(name, function(app, appName, entryPoint) {
       if (app) {
@@ -101,8 +148,10 @@ var GaiaApps = {
               // wait until the new iframe sends the mozbrowserfirstpaint event
               let frame = runningApps[origin].frame;
               if (frame.dataset.unpainted) {
-                window.addEventListener('appopen', function firstpaint() {
-                  window.removeEventListener('appopen', firstpaint);
+                window.addEventListener('mozbrowserfirstpaint',
+                                        function firstpaint() {
+                  window.removeEventListener('mozbrowserfirstpaint',
+                                             firstpaint);
                   sendResponse(origin);
                 });
               }
@@ -121,5 +170,16 @@ var GaiaApps = {
         marionetteScriptFinished(false);
       }
     });
+  },
+
+  /**
+   * Uninstalls the app with the speciifed name.
+   */
+  uninstallWithName: function(name) {
+    GaiaApps.locateWithName(name, function uninstall(app) {
+      app.uninstall();
+      marionetteScriptFinished(false);
+    });
   }
+
 };

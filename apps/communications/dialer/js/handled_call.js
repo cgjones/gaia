@@ -20,7 +20,8 @@ function HandledCall(aCall, aNode) {
     return;
 
   this.node = aNode;
-  this.durationNode = aNode.querySelector('.duration span');
+  this.durationNode = aNode.querySelector('.duration');
+  this.durationChildNode = aNode.querySelector('.duration span');
   this.directionNode = aNode.querySelector('.duration .direction');
   this.numberNode = aNode.querySelector('.numberWrapper .number');
   this.additionalInfoNode = aNode.querySelector('.additionalContactInfo');
@@ -31,8 +32,8 @@ function HandledCall(aCall, aNode) {
   var _ = navigator.mozL10n.get;
 
   var durationMessage = (this.call.state == 'incoming') ?
-                         _('incoming') : _('calling');
-  this.durationNode.textContent = durationMessage + '…';
+                         _('incoming') : _('connecting');
+  this.durationChildNode.textContent = durationMessage;
 
   this.updateDirection();
 
@@ -45,6 +46,7 @@ function HandledCall(aCall, aNode) {
 HandledCall.prototype.handleEvent = function hc_handle(evt) {
   switch (evt.call.state) {
     case 'connected':
+      CallScreen.render('connected');
       this.connected();
       break;
     case 'disconnected':
@@ -69,9 +71,11 @@ HandledCall.prototype.startTimer = function hc_startTimer() {
   if (this._ticker)
     return;
 
+  this.durationChildNode.textContent = (new Date(0)).toLocaleFormat('%M:%S');
+  this.durationNode.classList.add('isTimer');
   this._ticker = setInterval(function hc_updateTimer(self, startTime) {
     var elapsed = new Date(Date.now() - startTime);
-    self.durationNode.textContent = elapsed.toLocaleFormat('%M:%S');
+    self.durationChildNode.textContent = elapsed.toLocaleFormat('%M:%S');
   }, 1000, this, Date.now());
 };
 
@@ -81,8 +85,18 @@ HandledCall.prototype.updateCallNumber = function hc_updateCallNumber() {
   var additionalInfoNode = this.additionalInfoNode;
 
   if (!number.length) {
-    var _ = navigator.mozL10n.get;
-    node.textContent = _('unknown');
+    var setUnknownNumber = function() {
+      var _ = navigator.mozL10n.get;
+      node.textContent = _('unknown');
+    };
+    if (navigator.mozL10n.readyState == 'complete') {
+      setUnknownNumber();
+    } else {
+      window.addEventListener('localized', function onLocalized() {
+        window.removeEventListener('localized', onLocalized);
+        setUnknownNumber();
+      });
+    }
     return;
   }
 
@@ -101,8 +115,7 @@ HandledCall.prototype.updateCallNumber = function hc_updateCallNumber() {
       node.textContent = contact.name;
       var additionalInfo = Utils.getPhoneNumberAdditionalInfo(matchingTel,
                                                               contact);
-      additionalInfoNode.textContent = additionalInfo ?
-        additionalInfo : '';
+      KeypadManager.updateAdditionalContactInfo(additionalInfo);
       if (contact.photo && contact.photo.length > 0) {
         self.photo = contact.photo[0];
         CallScreen.setCallerContactImage(self.photo);
@@ -159,12 +172,7 @@ HandledCall.prototype.disconnected = function hc_disconnected() {
   }
 
   if (this.recentsEntry) {
-    var recentToAdd = this.recentsEntry;
-    RecentsDBManager.init(function() {
-      RecentsDBManager.add(recentToAdd, function() {
-        RecentsDBManager.close();
-      });
-    });
+    OnCallHandler.addRecentEntry(this.recentsEntry);
   }
 
   if (!this.node)

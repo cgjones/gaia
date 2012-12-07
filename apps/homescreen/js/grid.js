@@ -1,8 +1,10 @@
-
-
 'use strict';
 
 const GridManager = (function() {
+  var MAX_ICONS_PER_PAGE = 4 * 4;
+  var PREFERRED_ICON_SIZE = 60;
+  var SAVE_STATE_TIMEOUT = 100;
+
   var container;
 
   var windowWidth = window.innerWidth;
@@ -12,11 +14,17 @@ const GridManager = (function() {
   var dragging = false;
 
   var opacityOnAppGridPageMax = .7;
-  var kPageTransitionDuration = .3;
-  var landingOverlay = document.querySelector('#landing-overlay');
+  var kPageTransitionDuration = 300;
+  var overlay, overlayStyle;
+  var overlayTransition = 'opacity ' + kPageTransitionDuration + 'ms ease';
 
+  var numberOfSpecialPages = 0;
   var pages = [];
   var currentPage = 1;
+
+  var saveStateTimeout = null;
+
+  var appMgr = navigator.mozApps.mgmt;
 
   // Limits for changing pages during dragging
   var limits = {
@@ -29,6 +37,7 @@ const GridManager = (function() {
   function handleEvent(evt) {
     switch (evt.type) {
       case 'mousedown':
+        touchStartTimestamp = evt.timeStamp;
         evt.stopPropagation();
         startEvent = evt;
         attachEvents();
@@ -141,6 +150,7 @@ const GridManager = (function() {
         container.addEventListener('mousemove', pan, true);
 
         window.addEventListener('mouseup', function removePanHandler(e) {
+          touchEndTimestamp = e.timeStamp;
           window.removeEventListener('mouseup', removePanHandler, true);
 
           container.removeEventListener('mousemove', pan, true);
@@ -162,7 +172,7 @@ const GridManager = (function() {
         break;
 
       case 'contextmenu':
-        if (currentPage > 1 && 'origin' in evt.target.dataset) {
+        if (currentPage > 1 && 'isIcon' in evt.target.dataset) {
           evt.stopImmediatePropagation();
           Homescreen.setMode('edit');
           DragDropManager.start(evt, {
@@ -175,34 +185,28 @@ const GridManager = (function() {
     }
   }
 
-  function setOverlayPanning(index, deltaX, backward, duration) {
-    if (index === 1 && !backward) {
-      applyEffectOverlay(landingOverlay,
-                         (deltaX / windowWidth) * -opacityOnAppGridPageMax,
-                         duration);
-    } else if (index === 2 && backward) {
-      applyEffectOverlay(landingOverlay, opacityOnAppGridPageMax -
-                         ((deltaX / windowWidth) * opacityOnAppGridPageMax),
-                         duration);
+  function setOverlayPanning(index, deltaX, forward) {
+    if (index === 1) {
+      overlayStyle.opacity = (Math.abs(deltaX) / windowWidth) * opacityOnAppGridPageMax;
+    } else if (index === 0 && !forward || index === 2 && forward) {
+      overlayStyle.opacity = opacityOnAppGridPageMax - (Math.abs(deltaX) / windowWidth)
+                              * opacityOnAppGridPageMax;
     }
   }
 
-  function applyEffectOverlay(overlay, value, duration) {
-    if (duration) {
-      overlay.style.MozTransition = 'opacity ' + duration + 's ease';
-      overlay.addEventListener('transitionend', function end(e) {
-        overlay.removeEventListener('transitionend', end);
-        overlay.style.MozTransition = '';
-      });
-    }
-    overlay.style.opacity = value;
+  function applyEffectOverlay(index) {
+    overlayStyle.MozTransition = overlayTransition;
+    overlayStyle.opacity = index === 1 ? 0 : opacityOnAppGridPageMax;
   }
 
   function onTouchEnd(deltaX) {
     var page = currentPage;
-    if (Math.abs(deltaX) > thresholdForPanning) {
+    /* Bigger than threshold for panning or a fast movement bigger than
+       threshold for tapping */
+    if (Math.abs(deltaX) > thresholdForPanning ||
+        touchEndTimestamp - touchStartTimestamp < kPageTransitionDuration) {
       var forward = dirCtrl.goesForward(deltaX);
-      if (forward && currentPage < pageHelper.total() - 1) {
+      if (forward && currentPage < pages.length - 1) {
         page = page + 1;
       } else if (!forward &&
                   (page === 1 || page >= 3 ||
@@ -234,10 +238,20 @@ const GridManager = (function() {
     }
   }
 
+  var touchStartTimestamp = 0;
+  var touchEndTimestamp = 0;
+  var lastGoingPageTimestamp = 0;
+
   function goToPage(index, callback) {
     document.location.hash = (index == 1 ? 'root' : '');
     if (index < 0 || index >= pages.length)
       return;
+
+    var delay = touchEndTimestamp - lastGoingPageTimestamp ||
+                kPageTransitionDuration;
+    lastGoingPageTimestamp += delay;
+    var duration = delay < kPageTransitionDuration ?
+                   delay : kPageTransitionDuration
 
     var goToPageCallback = function() {
       delete document.body.dataset.transitioning;
@@ -247,6 +261,7 @@ const GridManager = (function() {
 
       previousPage.container.dispatchEvent(new CustomEvent('gridpagehideend'));
       newPage.container.dispatchEvent(new CustomEvent('gridpageshowend'));
+      overlayStyle.MozTransition = '';
       togglePagesVisibility(index, index);
     }
 
@@ -257,13 +272,12 @@ const GridManager = (function() {
       var forward = 1;
       var start = currentPage;
       var end = index;
-      setOverlayPanning(index, 0, true, kPageTransitionDuration);
     } else {
       var forward = -1;
       var start = index;
       var end = currentPage;
-      setOverlayPanning(index, 0, false, kPageTransitionDuration);
     }
+    applyEffectOverlay(index);
 
     togglePagesVisibility(start, end);
 
@@ -272,7 +286,7 @@ const GridManager = (function() {
 
     if (previousPage == newPage) {
       goToPageCallback();
-      newPage.moveByWithEffect(0, kPageTransitionDuration);
+      newPage.moveByWithEffect(0, duration);
       return;
     }
 
@@ -282,9 +296,8 @@ const GridManager = (function() {
 
     previousPage.container.dispatchEvent(new CustomEvent('gridpagehidestart'));
     newPage.container.dispatchEvent(new CustomEvent('gridpageshowstart'));
-    previousPage.moveByWithEffect(-forward * windowWidth,
-                                  kPageTransitionDuration);
-    newPage.moveByWithEffect(0, kPageTransitionDuration);
+    previousPage.moveByWithEffect(-forward * windowWidth, duration);
+    newPage.moveByWithEffect(0, duration);
 
     container.addEventListener('transitionend', function transitionEnd(e) {
       container.removeEventListener('transitionend', transitionEnd);
@@ -307,173 +320,64 @@ const GridManager = (function() {
   }
 
   /*
-   * Renders the homescreen from moz applications
-   */
-  function renderFromMozApps(finish) {
-    var apps = Applications.getAll();
-
-    var xhr = new XMLHttpRequest();
-    xhr.overrideMimeType('application/json');
-    xhr.open('GET', 'js/init.json', true);
-    xhr.send(null);
-
-    xhr.onreadystatechange = function renderFromMozApps_init(evt) {
-      if (xhr.readyState != 4)
-        return;
-
-      if (xhr.status == 0 || xhr.status == 200) {
-        try {
-          var init = JSON.parse(xhr.responseText);
-          init.grid.forEach(function(page) {
-            pageHelper.push(page);
-
-            for (var i = apps.length - 1; i >= 0; i--) {
-              if (page.indexOf(apps[i]['origin']) != -1) {
-                apps.splice(i, 1);
-              }
-            }
-          });
-
-          for (var i = apps.length - 1; i >= 0; i--) {
-            if (init.dock.indexOf(apps[i]['origin']) != -1) {
-              apps.splice(i, 1);
-            }
-          }
-          HomeState.saveShortcuts(init.dock);
-        } catch (e) {
-          dump('Failed parsing homescreen configuration file: ' + e + '\n');
-        }
-
-       var max = pageHelper.getMaxPerPage();
-        var list = [];
-        for (var i = 0; i < apps.length; i++) {
-          list.push(apps[i]);
-          if (list.length === max) {
-            pageHelper.push(list);
-            list = [];
-          }
-        }
-
-        if (list.length > 0) {
-          pageHelper.push(list);
-        }
-
-        // Renders pagination bar
-        finish();
-
-        // Saving initial state
-        pageHelper.saveAll();
-      }
-    }
-  }
-
-  /*
-   * Renders the homescreen from the database
-   */
-  function renderFromDB(finish) {
-    var appsInDB = [];
-    HomeState.getAppsByPage(
-      function iterate(apps) {
-        appsInDB = appsInDB.concat(apps);
-
-        for (var app in apps) {
-          Applications.cacheIcon(apps[app].origin, apps[app].icon);
-        }
-        pageHelper.push(apps.map(function(app) { return app.origin; }));
-      },
-      function onsuccess(results) {
-        if (results === 0) {
-          renderFromMozApps(finish);
-          return;
-        }
-
-        var installedApps = Applications.getInstalledApplications();
-        var len = appsInDB.length;
-        for (var i = 0; i < len; i++) {
-          var origin = appsInDB[i].origin;
-          if (origin in installedApps) {
-            delete installedApps[origin];
-          }
-        }
-
-        DockManager.getShortcuts(function getShortcuts(shortcuts) {
-          var len = shortcuts.length;
-          for (var i = 0; i < len; i++) {
-            var origin = shortcuts[i].origin || shortcuts[i];
-            if (origin in installedApps) {
-              Applications.cacheIcon(origin, shortcuts[i].icon);
-              delete installedApps[origin];
-            }
-          }
-
-          for (var origin in installedApps) {
-            GridManager.install(installedApps[origin]);
-          }
-
-          updatePaginationBar();
-          finish();
-        });
-      },
-      function onerror() {
-        // Error recovering info about apps
-        renderFromMozApps(finish);
-      }
-    );
-  }
-
-  /*
    * UI Localization
    *
    */
   var dirCtrl = {};
-  function getDirCtrl() {
+  function setDirCtrl() {
     function goesLeft(x) { return (x > 0); }
     function goesRight(x) { return (x < 0); }
     function limitLeft(x) { return (x < limits.left); }
     function limitRight(x) { return (x > limits.right); }
     var rtl = (document.documentElement.dir == 'rtl');
-    return {
-      offsetPrev: rtl ? -1 : 1,
-      offsetNext: rtl ? 1 : -1,
-      limitPrev: rtl ? limitRight : limitLeft,
-      limitNext: rtl ? limitLeft : limitRight,
-      translatePrev: rtl ? 'translateX(100%)' : 'translateX(-100%)',
-      translateNext: rtl ? 'translateX(-100%)' : 'translateX(100%)',
-      goesForward: rtl ? goesLeft : goesRight
-    };
+
+    dirCtrl.offsetPrev = rtl ? -1 : 1;
+    dirCtrl.offsetNext = rtl ? 1 : -1;
+    dirCtrl.limitPrev = rtl ? limitRight : limitLeft;
+    dirCtrl.limitNext = rtl ? limitLeft : limitRight;
+    dirCtrl.translatePrev = rtl ? 'translateX(100%)' : 'translateX(-100%)';
+    dirCtrl.translateNext = rtl ? 'translateX(-100%)' : 'translateX(100%)';
+    dirCtrl.goesForward = rtl ? goesLeft : goesRight;
   }
+
+  var haveLocale = false;
 
   function localize() {
     // switch RTL-sensitive methods accordingly
-    dirCtrl = getDirCtrl();
+    setDirCtrl();
 
-    pages.forEach(function translate(page) {
-      page.translate();
-    });
+    for each (var iconsForApp in appIcons) {
+      for each (var icon in iconsForApp) {
+        icon.translate();
+      }
+    }
+    for each (var icon in bookmarkIcons) {
+      icon.translate();
+    }
+
+    haveLocale = true;
   }
 
   function getFirstPageWithEmptySpace() {
-    var maxPerPage = pageHelper.getMaxPerPage();
-
-    var pagesCount = pageHelper.total();
-    for (var i = 2; i < pagesCount; i++) {
-      if (pages[i].getNumApps() < maxPerPage) {
+    for (var i = numberOfSpecialPages; i < pages.length; i++) {
+      if (pages[i].getNumIcons() < MAX_ICONS_PER_PAGE) {
         return i;
       }
     }
-
-    return pagesCount;
+    return pages.length;
   }
 
   function removeEmptyPages() {
     pages.forEach(function checkIsEmpty(page, index) {
       // ignore the landing page
-      if (index <= 1) {
+      if (index < numberOfSpecialPages) {
         return;
       }
 
-      if (page.getNumApps() === 0) {
+      if (page.getNumIcons() === 0) {
         pageHelper.remove(index);
+        if (currentPage >= index)
+          currentPage -= 1;
       }
     });
   }
@@ -485,45 +389,41 @@ const GridManager = (function() {
    * pages with a number of apps greater that the maximum
    */
   function ensurePagesOverflow() {
-    var max = pageHelper.getMaxPerPage();
-
     pages.forEach(function checkIsOverflow(page, index) {
       // ignore the landing page
-      if (index <= 1) {
+      if (index < numberOfSpecialPages) {
         return;
       }
 
       // if the page is not full
-      if (page.getNumApps() <= max) {
-        return;
-      }
-
-      var propagateIco = page.popIcon();
-      if (index === pageHelper.total() - 1) {
-        pageHelper.push([propagateIco]); // new page
-      } else {
-        pages[index + 1].prependIcon(propagateIco); // next page
+      while (page.getNumIcons() > MAX_ICONS_PER_PAGE) {
+        var propagateIco = page.popIcon();
+        if (index === pages.length - 1) {
+          pageHelper.addPage([propagateIco]); // new page
+        } else {
+          pages[index + 1].prependIcon(propagateIco); // next page
+        }
       }
     });
   }
 
   var pageHelper = {
+
+    maxIconsPerPage: MAX_ICONS_PER_PAGE,
+
     /*
      * Adds a new page to the grid layout
      *
-     * @param {Array} initial list of apps or icons
+     * @param {Array} icons
+     *                List of Icon objects.
      */
-    push: function(apps, appsFromMarket) {
-      var index = this.total();
-      var page = new Page(index);
+    addPage: function(icons) {
+      var pageElement = document.createElement('div');
+      var page = new Page(pageElement, icons);
       pages.push(page);
 
-      var pageElement = document.createElement('div');
       pageElement.className = 'page';
       container.appendChild(pageElement);
-
-      page.render(apps, pageElement);
-
       updatePaginationBar();
     },
 
@@ -533,43 +433,22 @@ const GridManager = (function() {
      * @param {int} index of the page
      */
     remove: function gm_remove(index) {
-      goToPage(index - 1);
-
       pages[index].destroy(); // Destroy page
       pages.splice(index, 1); // Removes page from the list
       updatePaginationBar();
     },
 
     /*
-     * Returns the total number of pages
-     */
-    total: function() {
-      return pages.length;
-    },
-
-    /*
-     * Saves the page state on the database
-     */
-    save: function(index) {
-      HomeState.saveGrid({
-        id: index,
-        apps: pages[index].getAppsList()
-      });
-    },
-
-    /*
      * Saves all pages state on the database
      */
     saveAll: function() {
-      HomeState.saveGrid(pages.slice(2));
-    },
-
-    /*
-     * Returns the total number of apps for each page. It could be
-     * more clever. Currently there're sixteen apps for page
-     */
-    getMaxPerPage: function() {
-      return 4 * 4;
+      var state = pages.slice(numberOfSpecialPages);
+      state.unshift(DockManager.page);
+      for (var i = 0; i < state.length; i++) {
+        var page = state[i];
+        state[i] = {index: i, icons: page.getIconDescriptors()};
+      }
+      HomeState.saveGrid(state);
     },
 
     getNext: function() {
@@ -585,41 +464,400 @@ const GridManager = (function() {
     },
 
     getLast: function() {
-      return pages[this.total() - 1];
+      return pages[pages.length - 1];
     },
 
     getCurrentPageNumber: function() {
       return currentPage;
     },
 
+    /*
+     * Returns the total number of pages
+     */
     getTotalPagesNumber: function() {
-      return pageHelper.total();
+      return pages.length;
     }
   };
+
+
+  /*
+   * Look up Icon objects using a descriptor containing 'manifestURL'
+   * (optionally 'entry_point') or 'bookmarkURL'.
+   */
+
+  // Map 'bookmarkURL' -> Icon object.
+  var bookmarkIcons = Object.create(null);
+  // Map 'manifestURL' + 'entry_point' to Icon object.
+  var appIcons = Object.create(null);
+  // Map 'origin' -> app object.
+  var appsByOrigin = Object.create(null);
+
+  function rememberIcon(icon) {
+    var descriptor = icon.descriptor;
+    if (descriptor.bookmarkURL) {
+      bookmarkIcons[descriptor.bookmarkURL] = icon;
+      return;
+    }
+    var iconsForApp = appIcons[descriptor.manifestURL];
+    if (!iconsForApp)
+      iconsForApp = appIcons[descriptor.manifestURL] = Object.create(null);
+
+    iconsForApp[descriptor.entry_point || ""] = icon;
+  }
+
+  function forgetIcon(icon) {
+    var descriptor = icon.descriptor;
+    if (descriptor.bookmarkURL) {
+      delete bookmarkIcons[descriptor.bookmarkURL];
+      return;
+    }
+    var iconsForApp = appIcons[descriptor.manifestURL];
+    if (!iconsForApp)
+      return;
+
+    delete iconsForApp[descriptor.entry_point || ""];
+  }
+
+  function getIcon(descriptor) {
+    if (descriptor.bookmarkURL)
+      return bookmarkIcons[descriptor.bookmarkURL];
+
+    var iconsForApp = appIcons[descriptor.manifestURL];
+    return iconsForApp && iconsForApp[descriptor.entry_point || ""];
+  }
+
+  function getIconsForApp(app) {
+    return appIcons[app.manifestURL];
+  }
+
+  function getIconForBookmark(bookmarkURL) {
+    return bookmarkIcons[bookmarkURL];
+  }
+
+  // Ways to enumerate installed apps & bookmarks and find out whether
+  // a certain "origin" is available as an existing installed app or
+  // bookmark. Only used by Everything.me at this point.
+  function getApps() {
+    var apps = [];
+    for (var origin in appsByOrigin) {
+      apps.push(appsByOrigin[origin]);
+    }
+    return apps;
+  }
+
+  function getAppByOrigin(url) {
+    return appsByOrigin[url];
+  }
+
+
+  /*
+   * Initialize the UI.
+   */
+  function initUI(selector) {
+    overlay = document.querySelector('#landing-overlay');
+    overlayStyle = overlay.style;
+
+    container = document.querySelector(selector);
+    container.addEventListener('contextmenu', handleEvent);
+    container.addEventListener('mousedown', handleEvent, true);
+
+    limits.left = container.offsetWidth * 0.05;
+    limits.right = container.offsetWidth * 0.95;
+
+    setDirCtrl();
+
+    // Create stub Page objects for the special pages that are
+    // not backed by the app database. Note that this creates an
+    // offset between these indexes here and the ones in the DB.
+    // See also pageHelper.saveAll().
+    numberOfSpecialPages = container.children.length;
+    for (var i = 0; i < container.children.length; i++) {
+      var pageElement = container.children[i];
+      var page = new Page(pageElement, null);
+      pages.push(page);
+    }
+  }
+
+  /*
+   * Initialize the mozApps event handlers and synchronize our grid
+   * state with the applications known to the system.
+   */
+  function initApps(apps) {
+    appMgr.oninstall = function oninstall(event) {
+     GridManager.install(event.application);
+    };
+    appMgr.onuninstall = function onuninstall(event) {
+      GridManager.uninstall(event.application);
+    };
+
+    appMgr.getAll().onsuccess = function onsuccess(event) {
+      // Create a copy of all icons we know about so we can find out which icons
+      // should be removed.
+      var iconsByManifestURL = Object.create(null);
+      for (var manifestURL in appIcons) {
+        iconsByManifestURL[manifestURL] = appIcons[manifestURL];
+      }
+
+      // Add an empty page where we drop the icons for any extra apps we discover
+      // at this stage.
+      pageHelper.addPage([]);
+
+      var apps = event.target.result;
+      apps.forEach(function eachApp(app) {
+        delete iconsByManifestURL[app.manifestURL];
+        processApp(app);
+      });
+
+      for (var manifestURL in iconsByManifestURL) {
+        var iconsForApp = iconsByManifestURL[manifestURL];
+        for (var entryPoint in iconsForApp) {
+          var icon = iconsForApp[entryPoint];
+          icon.remove();
+          GridManager.markDirtyState();
+        }
+      }
+
+      ensurePagesOverflow();
+      removeEmptyPages();
+    };
+  }
+
+  /*
+   * Create Icon objects from the descriptors we save in IndexedDB.
+   */
+  function convertDescriptorsToIcons(pageState) {
+    var icons = pageState.icons;
+    for (var i = 0; i < icons.length; i++) {
+      var descriptor = icons[i];
+      // navigator.mozApps backed app will objects will be handled
+      // asynchronously and therefore at a later time.
+      var app = null;
+      if (descriptor.bookmarkURL)
+        app = new Bookmark(descriptor);
+
+      var icon = icons[i] = new Icon(descriptor, app);
+      rememberIcon(icon);
+    }
+    return icons;
+  }
+
+  /*
+   * Process an Application object as retrieved from the
+   * navigator.mozApps.mgmt API (or a Bookmark object) and create
+   * corresponding icon(s) for it (an app can have multiple entry
+   * points, each one is represented as an icon.)
+   */
+  function processApp(app, withAnimation, callback) {
+    // Ignore system apps.
+    if (HIDDEN_APPS.indexOf(app.manifestURL) != -1)
+      return;
+
+    appsByOrigin[app.origin] = app;
+
+    var manifest = app.manifest ? app.manifest : app.updateManifest;
+    if (!manifest)
+      return;
+
+    var entryPoints = manifest.entry_points;
+    if (!entryPoints) {
+      createOrUpdateIconForApp(app, withAnimation);
+      return;
+    }
+
+    for (var entryPoint in entryPoints) {
+      if (!entryPoints[entryPoint].icons)
+        continue;
+
+      createOrUpdateIconForApp(app, withAnimation, entryPoint);
+    }
+  }
+
+  /*
+   * Create or update a single icon for an Application (or Bookmark) object.
+   */
+  function createOrUpdateIconForApp(app, withAnimation, entryPoint) {
+    // Make sure we update the icon/label when the app is updated.
+    if (!app.isBookmark) {
+      app.ondownloadapplied = function ondownloadapplied(event) {
+        var withAnimation = false;
+        createOrUpdateIconForApp(event.application, withAnimation, entryPoint);
+        app.ondownloadapplied = null;
+        app.ondownloaderror = null;
+      };
+      app.ondownloaderror = function ondownloaderror(event) {
+        createOrUpdateIconForApp(app, false, entryPoint);
+      }
+    }
+
+    var manifest = app.manifest ? app.manifest : app.updateManifest;
+    var iconsAndNameHolder = manifest;
+    if (entryPoint)
+      iconsAndNameHolder = manifest.entry_points[entryPoint];
+
+    var descriptor = {
+      bookmarkURL: app.bookmarkURL,
+      manifestURL: app.manifestURL,
+      entry_point: entryPoint,
+      removable: app.removable,
+      name: iconsAndNameHolder.name,
+      icon: bestMatchingIcon(app, iconsAndNameHolder)
+    };
+    if (haveLocale && !app.isBookmark) {
+      var locales = iconsAndNameHolder.locales;
+      if (locales) {
+        var locale = locales[document.documentElement.lang];
+        if (locale && locale.name)
+          descriptor.localizedName = locale.name;
+      }
+    }
+
+    // If there's an existing icon for this bookmark/app/entry point already, let
+    // it update itself.
+    var existingIcon = getIcon(descriptor);
+    if (existingIcon) {
+      existingIcon.update(descriptor, app);
+      return;
+    }
+
+    if (withAnimation)
+      descriptor.hidden = true;
+
+    var icon = new Icon(descriptor, app);
+    rememberIcon(icon);
+
+    // Normally we just silently add icons to the last page, unless we're
+    // installing an app/bookmark with a visibile animation. Then we want
+    // to pick the first page with an empty space.
+    var index = pages.length - 1;
+    if (withAnimation)
+      index = getFirstPageWithEmptySpace();
+
+    if (index < pages.length) {
+      pages[index].appendIcon(icon);
+    } else {
+      pageHelper.addPage([icon]);
+    }
+
+    GridManager.markDirtyState();
+
+    if (withAnimation) {
+      goToPage(index, function install_goToPage() {
+        icon.show();
+      });
+    }
+  }
+
+  /*
+   * Shows a dialog to confirm the download retry
+   * calls the method 'download'. That's applied
+   * to an icon, that has associated an app already.
+   */
+  function showRestartDownloadDialog(icon) {
+    var app = icon.app;
+    var _ = navigator.mozL10n.get;
+    var confirm =  {
+      title: _('download'),
+      callback: function onAccept() {
+        app.download();
+        app.ondownloaderror = function(evt) {
+          icon.showCancelled();
+          icon.updateAppStatus(evt.application);
+        };
+        app.onprogress = function onProgress(evt) {
+          app.onprogress = null;
+          icon.updateAppStatus(evt.application);
+        }
+        icon.showDownloading();
+        ConfirmDialog.hide();
+      },
+      applyClass: 'recommend'
+    };
+
+    var cancel = {
+      title: _('cancel'),
+      callback: ConfirmDialog.hide
+    };
+
+    var localizedName = icon.descriptor.localizedName || icon.descriptor.name;
+    ConfirmDialog.show(_('restart-download-title'), 
+      _('restart-download-body', {'name': localizedName}), 
+      cancel, 
+      confirm);
+    return;
+  }
+
+  function bestMatchingIcon(app, manifest) {
+    if (app.installState === 'pending') {
+      return app.downloading ?
+        Icon.prototype.DOWNLOAD_ICON_URL :
+        Icon.prototype.CANCELED_ICON_URL;
+    }
+    var icons = manifest.icons;
+    if (!icons)
+      return Icon.prototype.DEFAULT_ICON_URL;
+
+    var preferredSize = Number.MAX_VALUE;
+    var max = 0;
+
+    for (var size in icons) {
+      size = parseInt(size, 10);
+      if (size > max)
+        max = size;
+
+      if (size >= PREFERRED_ICON_SIZE && size < preferredSize)
+        preferredSize = size;
+    }
+    // If there is an icon matching the preferred size, we return the result,
+    // if there isn't, we will return the maximum available size.
+    if (preferredSize === Number.MAX_VALUE)
+      preferredSize = max;
+
+    var url = icons[preferredSize];
+    if (!url)
+      return Icon.prototype.DEFAULT_ICON_URL;
+
+    // If the icon path is not an absolute URL, prepend the app's origin.
+    if (url.indexOf('data:') == 0 ||
+        url.indexOf('app://') == 0 ||
+        url.indexOf('http://') == 0 ||
+        url.indexOf('https://') == 0)
+      return url;
+
+    return app.origin + '/' + url;
+  }
+
 
   return {
     /*
      * Initializes the grid manager
      *
-     * @param {String} selector of the container for applications
+     * @param {String} selector
+     *                 Specifies the HTML container element for the pages.
      *
      */
-    init: function gm_init(selector, finish) {
-      container = document.querySelector(selector);
-      for (var i = 0; i < container.children.length; i++) {
-        var page = new Page(i);
-        page.render([], container.children[i]);
-        pages.push(page);
-      }
+    init: function gm_init(gridSelector, dockSelector, callback) {
+      initUI(gridSelector);
 
-      container.addEventListener('contextmenu', handleEvent);
-      container.addEventListener('mousedown', handleEvent, true);
-
-      limits.left = container.offsetWidth * 0.05;
-      limits.right = container.offsetWidth * 0.95;
-
-      dirCtrl = getDirCtrl();
-      renderFromDB(finish);
+      // Initialize the grid from the state saved in IndexedDB.
+      HomeState.init(function eachPage(pageState) {
+        // First 'page' is the dock.
+        if (pageState.index == 0) {
+          var dockContainer = document.querySelector(dockSelector);
+          var dock = new Dock(dockContainer, convertDescriptorsToIcons(pageState));
+          DockManager.init(dockContainer, dock);
+          return;
+        }
+        pageHelper.addPage(convertDescriptorsToIcons(pageState));
+      }, function onState() {
+        initApps();
+        callback();
+      }, function onError(error) {
+        var dockContainer = document.querySelector(dockSelector);
+        var dock = new Dock(dockContainer, []);
+        DockManager.init(dockContainer, dock);
+        initApps();
+        callback();
+      });
     },
 
     onDragStart: function gm_onDragSart() {
@@ -639,56 +877,70 @@ const GridManager = (function() {
      * Adds a new application to the layout when the user installed it
      * from market
      *
-     * {Object} moz app
+     * @param {Application} app
+     *                      The application (or bookmark) object
      */
-    install: function gm_install(app, animation) {
-      var index = getFirstPageWithEmptySpace();
-      var origin = Applications.getOrigin(app);
-      if (animation) {
-        Applications.getManifest(origin).hidden = true;
-      }
-
-      if (index < pageHelper.total()) {
-        pages[index].append(app);
-      } else {
-        pageHelper.push([app], true);
-      }
-
-      if (animation) {
-        goToPage(index, function install_goToPage() {
-          pageHelper.getCurrent().applyInstallingEffect(origin);
-        });
-      }
-
-      pageHelper.saveAll();
+    install: function gm_install(app) {
+      var withAnimation = true;
+      processApp(app, withAnimation);
     },
 
     /*
      * Removes an application from the layout
      *
-     * {Object} moz app
+     * @param {Application} app
+     *                      The application object that's to be uninstalled.
      */
     uninstall: function gm_uninstall(app) {
-      var index = 0;
-      var total = pageHelper.total();
-      var origin = Applications.getOrigin(app).toString();
+      var updateDock = false;
+      var dock = DockManager.page;
 
-      while (index < total) {
-        var page = pages[index];
-        if (page.getIcon(origin)) {
-          page.remove(app);
-          break;
+      delete appsByOrigin[app.origin];
+
+      if (app.isBookmark) {
+        var icon = bookmarkIcons[app.bookmarkURL];
+        updateDock = dock.containsIcon(icon);
+        icon.remove();
+        delete bookmarkIcons[app.bookmarkURL];
+      } else {
+        var iconsForApp = appIcons[app.manifestURL];
+        if (!iconsForApp)
+          return;
+
+        for (var entryPoint in iconsForApp) {
+          var icon = iconsForApp[entryPoint];
+          updateDock = updateDock || dock.containsIcon(icon);
+          icon.remove();
         }
-        index++;
+        delete appIcons[app.manifestURL];
       }
 
+      if (updateDock)
+        DockManager.afterRemovingApp();
+
       removeEmptyPages();
-      pageHelper.saveAll();
+      this.markDirtyState();
     },
 
-    saveState: function gm_saveState() {
-      pageHelper.saveAll();
+    markDirtyState: function gm_markDirtyState() {
+      if (saveStateTimeout != null) {
+        window.clearTimeout(saveStateTimeout);
+      }
+      saveStateTimeout = window.setTimeout(function saveStateTrigger() {
+        saveStateTimeout = null;
+        pageHelper.saveAll();
+      }, SAVE_STATE_TIMEOUT);
     },
+
+    getIcon: getIcon,
+
+    getIconsForApp: getIconsForApp,
+
+    getIconForBookmark: getIconForBookmark,
+
+    getApps: getApps,
+
+    getAppByOrigin: getAppByOrigin,
 
     goToPage: goToPage,
 
@@ -698,12 +950,10 @@ const GridManager = (function() {
 
     localize: localize,
 
-    get dirCtrl() {
-      return dirCtrl;
-    },
+    dirCtrl: dirCtrl,
 
-    get pageHelper() {
-      return pageHelper;
-    }
+    pageHelper: pageHelper,
+
+    showRestartDownloadDialog: showRestartDownloadDialog
   };
 })();

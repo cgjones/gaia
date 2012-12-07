@@ -101,8 +101,16 @@ MockFb.Contact = function(devContact, mozCid) {
     return {
       set onsuccess(callback) {
         // Fetch FB data, that is returning a contact info
-        this.result = deviceContact;
+        this.result = new MockContactAllFields();
+        deviceContact = this.result;
+        setFacebookUid('220439');
+        this.result.id = '567';
+        this.result.familyName = ['Taylor'];
+        this.result.givenName = ['Bret'];
+        this.result.name = [this.result.givenName + ' ' +
+                              this.result.familyName];
         this.result.org[0] = 'FB';
+        this.result.adr[0] = MockFb.getAddress();
 
         callback.call(this);
       },
@@ -133,10 +141,14 @@ MockFb.Contact = function(devContact, mozCid) {
       set onsuccess(callback) {
         // Fetch FB data, that is returning a contact info
         this.result = [];
-        this.result[0] = deviceContact;
+        this.result[0] = new MockContactAllFields();
+        this.result[0].adr[0] = MockFb.getAddress();
         this.result[1] = {
-          '+346578888888': 'p',
-          'test@test.com': 'p'
+          '+346578888888': true,
+          'test@test.com': true,
+          'Palencia': true,
+          'Castilla y Le—n': true,
+          'Espa–a': true
         };
 
         callback.call(this);
@@ -170,4 +182,18 @@ MockFb.isFbLinked = function(contact) {
 
 MockFb.isEnabled = function() {
   return this.isEnabled;
+};
+
+MockFb.getWorksAt = function(fbData) {
+  return 'Telef—nica';
+};
+
+MockFb.getAddress = function(fbData) {
+  var out = {};
+  out.type = ['home'];
+  out.locality = 'Palencia';
+  out.region = 'Castilla y Le—n';
+  out.countryName = 'Espa–a';
+
+  return out;
 };

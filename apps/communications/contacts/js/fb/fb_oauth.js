@@ -36,6 +36,21 @@ if (typeof fb.oauth === 'undefined') {
         state: state
       };
 
+      // Enables simple access to test tokens for hacking up the app
+      // This code will need to be deleted once we have a final product
+      fb.testToken = fb.testToken || parent.fb.testToken;
+      if (typeof fb.testToken === 'string' && fb.testToken.trim().length > 0) {
+        window.console.warn('Facebook. A test token will be used!');
+        tokenDataReady({
+          data: {
+            access_token: fb.testToken,
+            expires_in: 0,
+            state: state
+          }
+        });
+        return;
+      }
+
       asyncStorage.getItem(STORAGE_KEY,
                            function getAccessToken(tokenData) {
         if (!tokenData || !tokenData.access_token) {
@@ -70,30 +85,37 @@ if (typeof fb.oauth === 'undefined') {
     }
 
     function tokenDataReady(e) {
-      var tokenData = e.data;
+      var parameters = e.data;
+      if (!parameters || !parameters.access_token) {
+        return;
+      }
 
-      // The content of window.postMessage is parsed
-      var parameters = JSON.parse(tokenData);
+      Curtain.show('wait', accessTokenCbData.state);
 
-      if (parameters.access_token) {
-        var end = parameters.expires_in;
+      window.setTimeout(function do_token_ready() {
         var access_token = parameters.access_token;
+        if (parameters.state === accessTokenCbData.state) {
+          accessTokenCbData.callback(access_token);
+        } else {
+          window.console.error('FB: Error in state', parameters.state,
+                                    accessTokenCbData.state);
+          return;
+        }
 
-        // Don't wait for callback because it's not necessary
+        var end = parameters.expires_in;
+
         window.asyncStorage.setItem(STORAGE_KEY, {
           access_token: access_token,
           expires: end * 1000,
           token_ts: Date.now()
+        }, function notify_parent() {
+              parent.postMessage({
+                type: 'token_stored',
+                data: ''
+              },fb.oauthflow.params.contactsAppOrigin);
         });
-      }
-
-      if (parameters.state === accessTokenCbData.state) {
-        accessTokenCbData.callback(access_token);
-      } else {
-        window.console.error('FB: Error in state', parameters.state,
-                                  accessTokenCbData.state);
-      }
-    }
+      },0);
+    } // tokenReady
 
     window.addEventListener('message', tokenDataReady);
 

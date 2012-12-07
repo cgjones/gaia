@@ -11,6 +11,7 @@ requireApp('communications/contacts/test/unit/mock_fixed_header.js');
 requireApp('communications/contacts/test/unit/mock_fb.js');
 requireApp('communications/contacts/test/unit/mock_extfb.js');
 requireApp('communications/contacts/test/unit/mock_activities.js');
+requireApp('communications/contacts/test/unit/mock_utils.js');
 
 // We're going to swap those with mock objects
 // so we need to make sure they are defined.
@@ -37,12 +38,19 @@ if (!this.ActivityHandler) {
   this.ActivityHandler = null;
 }
 
+if (!this.ImageLoader) {
+  this.ImageLoader = null;
+}
+
+var URL = null;
+
 suite('Render contacts list', function() {
   var subject,
       container,
       realL10n,
       realContacts,
       realFb,
+      realImageLoader,
       Contacts,
       fb,
       FixedHeader,
@@ -51,7 +59,10 @@ suite('Render contacts list', function() {
       mockContacts,
       mozL10n,
       mockActivities,
+      mockImageLoader,
+      mockURL,
       realActivities,
+      realURL,
       groupA,
       groupB,
       groupC,
@@ -85,7 +96,7 @@ suite('Render contacts list', function() {
   }
 
   function assertTotal(lengthTitles, lengthContacts) {
-    var total = list.querySelectorAll('h2:not(.hide)').length;
+    var total = list.querySelectorAll('header:not(.hide)').length;
     var totalC = list.querySelectorAll('li[data-uuid]').length;
 
     assert.equal(total, lengthTitles);
@@ -97,6 +108,18 @@ suite('Render contacts list', function() {
     var markPosition = content.indexOf('icon-fb');
 
     assert.isTrue(markPosition > -1);
+  }
+
+  function assertContactFound(contact) {
+    var selectorStr = 'li.contact-item.search.hide';
+    var hiddenContacts = container.querySelectorAll(selectorStr);
+    assert.length(hiddenContacts, 2);
+
+    selectorStr = 'li.contact-item.search:not(.hide)';
+    var showContact = container.querySelectorAll(selectorStr);
+    assert.length(showContact, 1);
+    assert.equal(showContact[0].dataset.uuid, contact.id);
+    assert.isTrue(noResults.classList.contains('hide'));
   }
 
   function getSearchStringFromContact(contact) {
@@ -132,12 +155,12 @@ suite('Render contacts list', function() {
     groupsContainer.id = 'groups-container';
     groupsContainer.innerHTML = '<p id="no-result" class="hide" ' +
       'data-l10n-id="noResults">No contacts found</p>';
-    groupsContainer.innerHTML += '<ol class="block-list" ' +
-      'id="groups-list"></ol>';
+    groupsContainer.innerHTML += '<section data-type="list" ' +
+      'id="groups-list"></section>';
     groupsContainer.innerHTML += '<div id="fixed-container" ';
     groupsContainer.innerHTML += 'class="fixed-title"> </div>';
-    groupsContainer.innerHTML += '<div id="current-jumper" ';
-    groupsContainer.innerHTML += 'class="view-jumper-current"></div>';
+    groupsContainer.innerHTML += '<nav data-type="scrollbar">';
+    groupsContainer.innerHTML += '<p></p></nav>';
     container.appendChild(groupsContainer);
     loading = document.createElement('div');
     loading.id = 'loading-overlay';
@@ -184,6 +207,10 @@ suite('Render contacts list', function() {
     window.FixedHeader = MockFixedHeader;
     realActivities = window.ActivityHandler;
     window.ActivityHandler = MockActivities;
+    realImageLoader = window.ImageLoader;
+    window.ImageLoader = MockImageLoader;
+    window.URL = window.URL || {};
+    window.URL = MockURL;
     window.utils = window.utils || {};
     window.utils.alphaScroll = MockAlphaScroll;
     subject = contacts.List;
@@ -199,6 +226,8 @@ suite('Render contacts list', function() {
     window.fb = realFb;
     window.mozL10n = realL10n;
     window.ActivityHandler = realActivities;
+    window.ImageLoader = realActivities;
+    window.URL = MockURL;
   });
 
   suite('Render list', function() {
@@ -460,13 +489,80 @@ suite('Render contacts list', function() {
       assertTotal(0, 0);
     });
 
-    test('checking no contacts when coming fron activity', function() {
+    test('removing one contact', function() {
+      subject.load([]);
+      var newList = new MockContactsList();
+      subject.load(newList);
+      var originalNumber = container.querySelectorAll('.contact-item').length;
+      assert.isNotNull(container.querySelector('[data-uuid="2"]'));
+
+      subject.remove('2');
+
+      var afterDelNumber = container.querySelectorAll('.contact-item').length;
+      assert.equal(originalNumber, afterDelNumber + 1);
+      assert.isNotNull(container.querySelector('[data-uuid="1"]'));
+      assert.isNull(container.querySelector('[data-uuid="2"]'));
+      assert.isNotNull(container.querySelector('[data-uuid="3"]'));
+
+      // There are contacts on the list so no contacts should be hidden
+      assert.isTrue(noContacts.classList.contains('hide'));
+    });
+
+    test('checking no contacts when coming from activity', function() {
       MockActivities.currentlyHandling = true;
       subject.load([]);
       assert.isTrue(noContacts.classList.contains('hide'));
       assertNoGroup(groupFav, containerFav);
       assertTotal(0, 0);
       MockActivities.currentlyHandling = false;
+    });
+
+    test('updating photo for a contact already rendered', function() {
+      mockContacts = new MockContactsList();
+      subject.load(mockContacts);
+      assertTotal(3, 3);
+
+      var selectorContact1 = 'li[data-uuid = "1"]';
+      var contact = container.querySelector(selectorContact1);
+
+      var img = contact.querySelector('img');
+      assert.equal(img.dataset.src, 'test.png',
+                    'At the begining contact 1 img === "test.png"');
+      var prevUpdated = contact.dataset.updated;
+
+      mockContacts[0].updated = new Date(); // This is the key!
+      mockContacts[0].photo = ['one.png'];
+      subject.load(mockContacts);
+      assertTotal(3, 3);
+
+      contact = container.querySelector(selectorContact1);
+      img = contact.querySelector('img');
+      assert.equal(img.dataset.src, 'one.png',
+                    'After updating contact 1 img === "one.png"');
+
+      assert.isTrue(prevUpdated < contact.dataset.updated,
+                    'Updated date is wrong. It should be changed!');
+    });
+
+    test('reloading list of contacts without updating', function() {
+      mockContacts = new MockContactsList();
+      subject.load(mockContacts);
+      assertTotal(3, 3);
+
+      var selectorContact1 = 'li[data-uuid = "1"]';
+      var contact = container.querySelector(selectorContact1);
+
+      var img = contact.querySelector('img');
+      assert.equal(img.dataset.src, 'test.png',
+                    'At the begining contact 1 img === "test.png"');
+
+      subject.load(mockContacts);
+      assertTotal(3, 3);
+
+      contact = container.querySelector(selectorContact1);
+      img = contact.querySelector('img');
+      assert.equal(img.dataset.src, 'test.png',
+                    'At the begining contact 1 img === "test.png"');
     });
   });  // suite ends
 
@@ -476,16 +572,16 @@ suite('Render contacts list', function() {
       subject.init(list);
     });
 
-    test('adding one FB Contact to an empty list', function() {
-      var deviceContact = new MockContactAllFields();
+    teardown(function() {
+      window.fb.setIsFbContact(false);
+      window.fb.setIsFbLinked(false);
+    });
 
-      deviceContact.id = '567';
-      deviceContact.familyName = ['Taylor'];
-      deviceContact.givenName = ['Bret'];
-      deviceContact.name = [deviceContact.givenName + ' ' +
-                            deviceContact.familyName];
+    test('adding one FB Contact to an empty list', function() {
+      window.fb.setIsFbContact(true);
+
+      var deviceContact = new MockContactAllFields();
       var newContact = new MockFb.Contact(deviceContact);
-      newContact.uid = '220439';
 
       newContact.getData().onsuccess = function cb() {
         var newList = [this.result];
@@ -519,15 +615,7 @@ suite('Render contacts list', function() {
       searchBox.value = contact.familyName[0];
       contacts.Search.search();
 
-      var selectorStr = 'li.block-item.search.hide';
-      var hiddenContacts = container.querySelectorAll(selectorStr);
-      assert.length(hiddenContacts, 2);
-
-      selectorStr = 'li.block-item.search:not(.hide)';
-      var showContact = container.querySelectorAll(selectorStr);
-      assert.length(showContact, 1);
-      assert.equal(showContact[0].dataset.uuid, contact.id);
-      assert.isTrue(noResults.classList.contains('hide'));
+      assertContactFound(contact);
     });
 
     test('check empty search', function() {
@@ -536,10 +624,24 @@ suite('Render contacts list', function() {
       searchBox.value = 'YYY';
       contacts.Search.search();
 
-      var selectorStr = 'li.block-item.search.hide';
+      var selectorStr = 'li.contact-item.search.hide';
       var hiddenContacts = container.querySelectorAll(selectorStr);
       assert.length(hiddenContacts, 3);
       assert.isFalse(noResults.classList.contains('hide'));
+    });
+
+    test('Search  by name and surname with trailing whitespaces', function() {
+      mockContacts = new MockContactsList();
+      var contactIndex = Math.floor(Math.random() * mockContacts.length);
+      var contact = mockContacts[contactIndex];
+
+      subject.load(mockContacts);
+
+      searchBox.value = contact.givenName[0] + ' ' +
+                                                  contact.familyName[0] + '  ';
+      contacts.Search.search();
+
+      assertContactFound(contact);
     });
   });
 
@@ -560,13 +662,12 @@ suite('Render contacts list', function() {
         var printed = names[i];
         var mockContact = mockContacts[i];
         var expected = getSearchStringFromContact(mockContact);
-        assert.equal(printed.dataset['search'], expected);
+        assert.equal(printed.dataset['search'], window.utils.text.escapeHTML(expected, true));
 
         // Check as well the correct highlight
         // familyName to be in bold
-        var highlight = '<strong class="block-name">' +
-          mockContact.givenName[0] + ' <b>' +
-          mockContact.familyName[0] + '</b>';
+        var highlight =  window.utils.text.escapeHTML(mockContact.givenName[0], true) + ' <strong>' +
+           window.utils.text.escapeHTML(mockContact.familyName[0], true) + '</strong>';
         assert.isTrue(printed.innerHTML.indexOf(highlight) == 0);
       }
     });
@@ -579,14 +680,14 @@ suite('Render contacts list', function() {
       var mockContact = mockContacts[mockContacts.length - 1];
       var expected = getSearchStringFromContact(mockContact);
 
-      assert.equal(name.dataset['search'], expected);
+      assert.equal(name.dataset['search'],  window.utils.text.escapeHTML(expected, true));
 
       // Check highlight
       // Given name to be in bold
-      var highlight = '<strong class="block-name"><b>' +
-          mockContact.givenName[0] + '</b> ' +
-          mockContact.familyName[0];
-      assert.isTrue(name.innerHTML.indexOf(highlight) == 0);
+      var highlight = '<strong>' +
+           window.utils.text.escapeHTML(mockContact.givenName[0], true) + '</strong> ' +
+           window.utils.text.escapeHTML(mockContact.familyName[0], true);
+      assert.equal(name.innerHTML.indexOf(highlight), 0);
     });
   });
 });

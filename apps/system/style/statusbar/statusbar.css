@@ -1,7 +1,7 @@
 /* The status bar disregard the rem rule because we have only 16px icons for now */
 
 body, html {
-  font-family: MozTT, sans-serif; 
+  font-family: MozTT, sans-serif;
   font-weight: 500;
   font-size: 10px;
 }
@@ -74,11 +74,15 @@ body, html {
   bottom: 1px;
 }
 
-#statusbar-time { 
+#statusbar-time {
   color: #fff;
   font-size: 1.49rem; /* 6.5pt */
   position: relative;
   bottom: 2px;
+}
+
+#screen.locked #statusbar-time {
+  display: none;
 }
 
 .sb-icon {
@@ -351,10 +355,10 @@ body, html {
   color: #666;
   width: 16px;
   height: 16px;
-  top: 0;
+  top: -2px;
   right: 0;
   padding: 0 1px;
-  font-size: 1.49rem; /* 6.5pt */  
+  font-size: 1.49rem; /* 6.5pt */
 }
 
 *[dir=rtl] .sb-icon-notification::after {
@@ -379,4 +383,18 @@ body, html {
   width: 100%;
   text-align: center;
   font-size: 1.15rem; /*5pt  was 8px */
+}
+
+/* JW: should we show how many current download we have
+ * as in sb-icon-ms or sb-icon-notification ? */
+.sb-icon-system-downloads {
+  /* JW: waiting for the correct icon; in the mean time I made this one */
+  background: url('images/system-downloads.gif') no-repeat;
+  background-position: 0 0;
+}
+
+.sb-icon-call-forwarding {
+  /* Waiting for the correct icon. In the mean time we use this one. */
+  background: url('images/call-forwarding.png') no-repeat;
+  background-position: 0 0;
 }

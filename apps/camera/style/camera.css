@@ -79,6 +79,10 @@ html, body {
   opacity: 0.5;
 }
 
+#switch-button[disabled=disabled] {
+  opacity: 0.5;
+}
+
 #capture-button {
   background-color: #03a2b4;
   border-radius: 100px;
@@ -86,10 +90,6 @@ html, body {
   height: 100px;
   width: 33%;
   top: -28px;
-}
-
-#capture-button[disabled=disabled] {
-  opacity: 0.5;
 }
 
 #video-timer {
@@ -115,10 +115,6 @@ html, body {
   background-image: url(images/stop.png);
 }
 
-#switch-button[disabled=disabled] {
-  opacity: 0.5;
-}
-
 /* Swap the camera and video icons depending on mode */
 .video #switch-button span {
   background-image: url(images/camera.png);
@@ -134,51 +130,6 @@ html, body {
 
 .video #capture-button span {
   background-image: url(images/video.png);
-}
-
-#film-strip {
-  -moz-transition: 0.2s ease-in-out;
-  position: absolute;
-  z-index: 50;
-  -moz-transform: translateY(0px);
-  left: 0;
-  right: 0;
-  padding: 10px;
-  min-height: 30px;
-  background: rgba(0, 0, 0, 0.8);
-}
-
-#film-strip.hidden {
-  -moz-transform: translateY(-50px);
-}
-
-.thumbnail {
-  position: relative;
-  width: 40px;
-  height: 40px;
-  border: 2px solid grey;
-  margin-right: 10px;
-  float: left;
-}
-
-.thumbnail:last-child {
-  border-color: orange;
-}
-
-.thumbnail.video:after {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 40px;
-  width: 40px;
-  content:'';
-  background: url(images/play_overlay.png) no-repeat center center;
-}
-
-.thumbnail img {
-  pointer-events: none;
-  height: 100%;
-  width: 100%;
 }
 
 #focus-ring {

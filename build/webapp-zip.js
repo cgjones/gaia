@@ -1,27 +1,6 @@
 
 function debug(msg) {
-  if (DEBUG)
-    dump('-*- ' + msg + '\n');
-}
-
-/**
- * Returns an array of nsIFile's for a given directory
- *
- * @param  {nsIFile} dir       directory to read.
- * @param  {boolean} recursive set to true in order to walk recursively.
- *
- * @return {Array}   list of nsIFile's.
- */
-function ls(dir, recursive) {
-  let results = [];
-  let files = dir.directoryEntries;
-  while (files.hasMoreElements()) {
-    let file = files.getNext().QueryInterface(Ci.nsILocalFile);
-    results.push(file);
-    if (recursive && file.isDirectory())
-      results = results.concat(ls(file, true));
-  }
-  return results;
+  //dump('-*- webapps-zip.js ' + msg + '\n');
 }
 
 // Header values usefull for zip xpcom component
@@ -42,6 +21,11 @@ const PR_EXCL = 0x80;
  * @param {nsIFile}      file      file xpcom to add.
  */
 function addToZip(zip, pathInZip, file) {
+  // Branding specific code
+  if (/shared\/locales\/branding$/.test(file.path)) {
+    file.append((PRODUCTION == 1) ? 'official' : 'unofficial');
+  }
+
   if (!file.exists())
     throw new Error('Can\'t add inexistent file to zip : ' + file.path);
 
@@ -67,6 +51,7 @@ function addToZip(zip, pathInZip, file) {
   }
   // Case 2/ Directory
   else if (file.isDirectory()) {
+    debug(' +directory to zip ' + pathInZip);
     if (!zip.hasEntry(pathInZip))
       zip.addEntryDirectory(pathInZip, file.lastModifiedTime, false);
 
@@ -153,11 +138,10 @@ Gaia.webapps.forEach(function(webapp) {
   let files = ls(webapp.sourceDirectoryFile);
   files.forEach(function(file) {
       // Ignore files from /shared directory (these files were created by
-      // Makefile code)
-      if (file.leafName !== 'shared')
+      // Makefile code). Also ignore files in the /test directory.
+      if (file.leafName !== 'shared' && file.leafName !== 'test')
         addToZip(zip, '/' + file.leafName, file);
     });
-
 
   // Put shared files, but copy only files actually used by the webapp.
   // We search for shared file usage by parsing webapp source code.
@@ -167,8 +151,9 @@ Gaia.webapps.forEach(function(webapp) {
   let used = {
     js: [],              // List of JS file paths to copy
     locales: [],         // List of locale names to copy
+    resources: [],       // List of resources to copy
     styles: [],          // List of stable style names to copy
-    unstable_styles: [], // List of unstable style names to copy
+    unstable_styles: []  // List of unstable style names to copy
   };
 
   let files = ls(webapp.sourceDirectoryFile, true);
@@ -183,7 +168,7 @@ Gaia.webapps.forEach(function(webapp) {
       // Grep files to find shared/* usages
       let content = getFileContent(file);
       while ((matches = SHARED_USAGE.exec(content)) !== null) {
-        let kind = matches[1]; // either `js`, `locales` or `style`
+        let kind = matches[1]; // js | locales | resources | style
         let path = matches[2];
         switch (kind) {
           case 'js':
@@ -194,6 +179,10 @@ Gaia.webapps.forEach(function(webapp) {
             let localeName = path.substr(0, path.lastIndexOf('.'));
             if (used.locales.indexOf(localeName) == -1)
               used.locales.push(localeName);
+            break;
+          case 'resources':
+            if (used.resources.indexOf(path) == -1)
+              used.resources.push(path);
             break;
           case 'style':
             let styleName = path.substr(0, path.lastIndexOf('.'));
@@ -241,6 +230,20 @@ Gaia.webapps.forEach(function(webapp) {
     addToZip(zip, '/shared/locales/' + name + '.ini', ini);
     // And the locale folder itself
     addToZip(zip, '/shared/locales/' + name, localeFolder);
+  });
+
+  used.resources.forEach(function(path) {
+    // Compute the nsIFile for this shared resource file
+    let file = Gaia.sharedFolder.clone();
+    file.append('resources');
+    path.split('/').forEach(function(segment) {
+      file.append(segment);
+    });
+    if (!file.exists()) {
+      throw new Error('Using inexistent shared resource: ' + path + ' from: ' +
+                      webapp.domain);
+    }
+    addToZip(zip, '/shared/resources/' + path, file);
   });
 
   used.styles.forEach(function(name) {

@@ -354,11 +354,10 @@ var AlarmList = {
       var time = getLocaleTime(d);
       content += '<li>' +
                  '  <label class="alarmList">' +
-                 '    <input id="input-enable" data-id="' + alarm.id +
+                 '    <input id="input-enable" data-type="switch"' +
+                        '" data-id="' + alarm.id +
                         '" type="checkbox"' + isChecked + '>' +
-                 '    <span class="setEnabledBtn"' +
-                        ' data-checked="' + _('on') +
-                        '" data-unchecked="' + _('off') + '"></span>' +
+                 '    <span></span>' +
                  '  </label>' +
                  '  <a href="#alarm" id="alarm-item" data-id="' +
                       alarm.id + '">' +
@@ -464,7 +463,7 @@ var AlarmManager = {
     } else {
       nextAlarmFireTime = getNextAlarmFireTime(alarm);
     }
-    var request = navigator.mozAlarms.add(nextAlarmFireTime, 'honorTimezone',
+    var request = navigator.mozAlarms.add(nextAlarmFireTime, 'ignoreTimezone',
                   { id: alarm.id }); // give the alarm id for the request
     var self = this;
     request.onsuccess = function(e) {
@@ -568,6 +567,13 @@ var AlarmManager = {
     };
   },
 
+  getAlarmTime: function am_getAlarmTime() {
+    var d = new Date();
+    d.setHours(this._onFireAlarm.hour);
+    d.setMinutes(this._onFireAlarm.minute);
+    return d;
+  },
+
   getAlarmLabel: function am_getAlarmLabel() {
     return this._onFireAlarm.label;
   },
@@ -587,6 +593,7 @@ var AlarmEditView = {
     hour24State: null,
     is12hFormat: false
   },
+  previewRingtonePlayer: null,
 
   get element() {
     delete this.element;
@@ -668,6 +675,7 @@ var AlarmEditView = {
     this.repeatSelect.addEventListener('change', this);
     this.soundMenu.addEventListener('click', this);
     this.soundSelect.addEventListener('change', this);
+    this.soundSelect.addEventListener('blur', this);
     this.snoozeMenu.addEventListener('click', this);
     this.snoozeSelect.addEventListener('change', this);
     this.deleteButton.addEventListener('click', this);
@@ -747,6 +755,10 @@ var AlarmEditView = {
         switch (evt.type) {
           case 'change':
             this.refreshSoundMenu(this.getSoundSelect());
+            this.previewSound();
+            break;
+          case 'blur':
+            this.stopPreviewSound();
             break;
         }
         break;
@@ -777,7 +789,7 @@ var AlarmEditView = {
       minute: now.getMinutes(), // use current minute
       enabled: true,
       repeat: '0000000',
-      sound: 'ALARM_progressive_dapple.ogg',
+      sound: 'ac_classic_clock_alarm.opus',
       snooze: 5,
       color: 'Darkorange'
     };
@@ -851,9 +863,30 @@ var AlarmEditView = {
   },
 
   refreshSoundMenu: function aev_refreshSoundMenu(sound) {
-    // XXX: Refresh and paser the name of sound file for sound menu.
+    // Refresh and parse the name of sound file for sound menu.
     var sound = (sound) ? this.getSoundSelect() : this.alarm.sound;
-    this.soundMenu.innerHTML = sound.slice(0, sound.lastIndexOf('.'));
+    this.soundMenu.innerHTML = _(sound.replace('.', '_'));
+  },
+
+  previewSound: function aev_previewSound() {
+    var ringtonePlayer = this.previewRingtonePlayer;
+    if (!ringtonePlayer) {
+      this.previewRingtonePlayer = new Audio();
+      ringtonePlayer = this.previewRingtonePlayer;
+    } else {
+      ringtonePlayer.pause();
+    }
+
+    var ringtoneName = this.getSoundSelect();
+    var previewRingtone = 'shared/resources/media/alarms/' + ringtoneName;
+    ringtonePlayer.mozAudioChannelType = 'alarm';
+    ringtonePlayer.src = previewRingtone;
+    ringtonePlayer.play();
+  },
+
+  stopPreviewSound: function aev_stopPreviewSound() {
+    if (this.previewRingtonePlayer)
+      this.previewRingtonePlayer.pause();
   },
 
   initSnoozeSelect: function aev_initSnoozeSelect() {

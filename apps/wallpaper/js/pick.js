@@ -23,16 +23,18 @@ window.onload = function() {
 
     var canvas = document.createElement('canvas');
     var context = canvas.getContext('2d');
-    canvas.width = pickActivity.source.data.width;
-    canvas.height = pickActivity.source.data.height;
+    canvas.width = pickActivity.source.data.width || window.innerWidth;
+    canvas.height = pickActivity.source.data.height || window.innerHeight;
     context.drawImage(e.target, 0, 0);
 
-    pickActivity.postResult({
-      type: pickActivity.source.data.type,
-      url: canvas.toDataURL(pickActivity.source.data.type)
-    });
+    canvas.toBlob(function(blob) {
+      pickActivity.postResult({
+        type: 'image/png',
+        blob: blob
+      }, 'image/png');
 
-    endPick();
+      endPick();
+    }, pickActivity.source.data.type);
   }
 
   function cancelPick() {

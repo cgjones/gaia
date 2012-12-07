@@ -18,6 +18,7 @@ var Applications = {
         var apps = evt.target.result;
         apps.forEach(function(app) {
           self.installedApps[app.manifestURL] = app;
+          // TODO Followup for retrieving homescreen & comms app
         });
 
         self.ready = true;
@@ -55,7 +56,7 @@ var Applications = {
       delete self.installedApps[deletedapp.manifestURL];
 
       self.fireApplicationUninstallEvent(deletedapp);
-    }
+    };
   },
 
   getByManifestURL: function a_getByManifestURL(manifestURL) {

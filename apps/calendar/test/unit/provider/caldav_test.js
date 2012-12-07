@@ -16,6 +16,7 @@ suite('provider/caldav', function() {
 
   var accountStore;
   var calendarStore;
+  var componentStore;
   var eventStore;
 
   var calendar;
@@ -36,6 +37,7 @@ suite('provider/caldav', function() {
 
     calendarStore = app.store('Calendar');
     accountStore = app.store('Account');
+    componentStore = app.store('IcalComponent');
 
     accountStore.cached[account._id] = account;
     calendarStore.cached[calendar._id] = calendar;
@@ -47,7 +49,11 @@ suite('provider/caldav', function() {
   teardown(function(done) {
     testSupport.calendar.clearStore(
       db,
-      ['accounts', 'calendars', 'events', 'busytimes'],
+      [
+        'accounts', 'calendars',
+        'events', 'busytimes',
+        'icalComponents'
+      ],
       done
     );
   });
@@ -128,11 +134,20 @@ suite('provider/caldav', function() {
 
         subject.getAccount(input, function cb(cbError, cbResult) {
           done(function() {
-            assert.deepEqual(calledWith, [
-              'caldav', 'getAccount', input, cb
-            ]);
             assert.equal(cbResult, result);
             assert.equal(cbError, error);
+          });
+        });
+      });
+
+      test('error handling', function(done) {
+        error = new Error();
+        error.constructorName = 'CaldavHttpError';
+        error.code = 404;
+        var errorMsg = 'no-url';
+        subject.getAccount(input, function cb(cbError, cbResult) {
+          done(function() {
+            assert.equal(cbError, errorMsg);
           });
         });
       });
@@ -141,6 +156,7 @@ suite('provider/caldav', function() {
     suite('#findCalendars', function() {
       test('success', function(done) {
         result = [{ id: 'wow' }];
+        error = null;
 
         subject.findCalendars(input, function cb(cbError, cbResult) {
           done(function() {
@@ -155,8 +171,11 @@ suite('provider/caldav', function() {
     });
 
     suite('#createEvent', function() {
-      test('success', function(done) {
-        var event = Factory('event', {
+      var event;
+      var id;
+
+      setup(function(done) {
+        event = Factory('event', {
           calendarId: calendar._id
         });
 
@@ -165,41 +184,98 @@ suite('provider/caldav', function() {
         result.syncToken = 'hit';
         result.icalComponent = 'xfoo';
 
-        var id = calendar._id + '-foo';
+        id = calendar._id + '-foo';
 
-        subject.createEvent(event, function() {
-          eventStore.get(id, function(err, result) {
-            var remote = result.remote;
-            assert.equal(remote.id, 'foo');
-            assert.equal(remote.syncToken, 'hit');
-            assert.equal(remote.icalComponent, 'xfoo');
-            done();
+        subject.createEvent(event, done);
+      });
+
+      test('icalComponent', function(done) {
+        componentStore.get(id, function(err, result) {
+          done(function() {
+            assert.deepEqual(result, {
+              eventId: id,
+              data: 'xfoo'
+            });
           });
         });
       });
+
+      test('event', function(done) {
+        eventStore.get(id, function(err, result) {
+          var remote = result.remote;
+          assert.equal(remote.id, 'foo');
+          assert.equal(remote.syncToken, 'hit');
+          assert.ok(!remote.icalComponent, 'does not have icalComponent');
+          done();
+        });
+      });
+
     });
 
     suite('#updateEvent', function() {
       var event;
+      var component;
 
       setup(function(done) {
+        var trans = eventStore.db.transaction(
+          ['events', 'icalComponents'],
+          'readwrite'
+        );
+
+        trans.oncomplete = function() {
+          done();
+        };
+
         event = Factory('event', {
           calendarId: calendar._id
         });
+
+        component = Factory('icalComponent', {
+          eventId: event._id,
+          data: 'original'
+        });
+
         eventStore.persist(event, done);
+        componentStore.persist(component, done);
       });
 
-      test('simple event', function(done) {
+      setup(function(done) {
         result = Factory.create('event').remote;
         result.icalComponent = 'xfooo';
+        result.syncToken = 'changedmefoo';
+        subject.updateEvent(event, done);
+      });
 
-        subject.updateEvent(event, function(err, data) {
-          eventStore.get(event._id, function(err, result) {
-            done(function() {
-              assert.equal(result.remote.icalComponent, 'xfooo');
-            });
+      test('sent data', function() {
+        var details = calledWith[calledWith.length - 2];
+
+        assert.ok(details.event, 'sends event');
+
+        assert.equal(
+          details.icalComponent,
+          'original',
+          'icalComponent'
+        );
+      });
+
+      test('component', function(done) {
+        componentStore.get(event._id, function(err, item) {
+          done(function() {
+            assert.deepEqual(
+              item,
+              { eventId: event._id, data: 'xfooo' }
+            );
           });
         });
+      });
+
+      test('event', function(done) {
+        eventStore.get(event._id, function(err, item) {
+          done(function() {
+            assert.equal(item.remote.syncToken, result.syncToken);
+          });
+        });
+
       });
 
     });
@@ -241,6 +317,7 @@ suite('provider/caldav', function() {
         var event = Factory('event', {
           calendarId: calendar._id,
           remote: {
+            id: i,
             url: 'some_foo_' + i + '.ics',
             syncToken: i
           }
@@ -291,7 +368,7 @@ suite('provider/caldav', function() {
         calledWith = arguments;
         var cb = calledWith[calledWith.length - 1];
         setTimeout(cb, 0, null);
-      }
+      };
 
       var trans = db.transaction(
         ['accounts', 'calendars'],
@@ -306,7 +383,7 @@ suite('provider/caldav', function() {
 
       trans.oncomplete = function() {
         done();
-      }
+      };
 
       accountStore.persist(account, trans);
       calendarStore.persist(calendar, trans);

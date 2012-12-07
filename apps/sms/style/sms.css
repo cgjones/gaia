@@ -74,60 +74,43 @@ form[role="dialog"][data-type="edit"] header menu[type="toolbar"] button {
 
 /* Panel handling */
 .wrapper {
-  width: 200%;
-  height: 100%;
   position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
   left: 0;
   top: 0;
-  overflow: hidden;
 }
 
 .panel {
-  position: relative;
+  position: absolute;
   float: left;
-  width: 50%;
+  width: 100%;
   height: 100%;
+  transition: transform 0.4s ease;
+}
+
+.panel:nth-child(2) {
+  transform: translateX(100%);
+}
+
+.to-left > .panel:first-child {
+  transform: translateX(-100%);
+}
+
+.to-left > .panel:nth-child(2) {
+  transform: translateX(0);
 }
 
 #thread-list,#thread-messages {
   z-index: 10;
   background: white;
-
-}
-
-.to-left {
-  left: -100%;
 }
 
 #icon-contact {
   display: none;
 }
 
-/*
-  Snapshot for increasing performance in slide transition &
-  Smooth lateral slide
-*/
-
-#snapshot {
-  top: -100%;
-  width: 200%;
-  height: 100%;
-  -moz-transition: -moz-transform .4s ease;
-  background:-moz-element(#main-wrapper) no-repeat;
-}
-
-.snapshot #snapshot {
-  display: block;
-  z-index: 100;
-  -moz-transform: translateX(-50%);
-}
-
-.snapshot-back #snapshot {
-  display: block;
-  left: -100%;
-  z-index: 100;
-  -moz-transform: translateX(50%);
-}
 
 /* Styles for Edit mode */
 .edit form[role="dialog"][data-type="edit"] > menu {
@@ -575,17 +558,8 @@ form.bottom[role="search"].new-sms-form {
 }
 
 #message-to-send {
-  /* Fixing texteareas in BB */
-  background: url("../shared/input_areas/images/ui/shadow-search.png") repeat-x scroll left top #FFFFFF;
-  border: 0.1rem solid rgba(0, 0, 0, 0.33);
-  line-height: 1.8rem;
-  height: 3rem;
-  max-height: 10rem;
-  width: 100%;
-}
-
-#message-to-send:-moz-placeholder {
-  padding: 0.5rem 0 0 0.5rem;
+  padding: 0.4rem 0 0.4rem 0.4rem;
+  line-height: 2rem;
 }
 
 #send-message-container {
@@ -679,47 +653,16 @@ form.bottom[role="search"].new-sms-form {
 /*
   Loading screen while deleting
 */
-.show-loading {
-  opacity: 1 !important;
+#loading.show-loading {
+  display: block;
 }
 
 #loading {
-  pointer-events: none;
-  z-index: 200;
-  background: rgba(0,0,0,.8);
-  width: 100%;
-  height: 100%;
-  position: absolute;
-  top: 0;
-  left: 0;
-  padding: 2rem;
-  -moz-box-sizing: border-box;
-  opacity: 0;
-  transition: opacity 0.3s ease-out;
-}
-
-.loading-container {
-  position: relative;
-  top: 50%;
-  margin-top: -6rem;
+  display: none;
 }
 
 .loading-header {
   text-align: left;
-  padding: 2rem 1rem 4rem 1rem;
-  -moz-box-sizing: border-box;
-  color: white;
-  font-size: calc(10 * 0.226rem);
-  font-weight: 300;
-  border-top: .1rem solid white;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.loading-icon img{
-  width: 2.8rem;
-  height: 2.8rem;
-  margin: 0 auto;
 }
 
 /*

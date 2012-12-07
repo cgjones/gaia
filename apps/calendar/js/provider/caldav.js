@@ -15,6 +15,7 @@ Calendar.ns('Provider').Caldav = (function() {
     this.service = this.app.serviceController;
     this.busytimes = this.app.store('Busytime');
     this.events = this.app.store('Event');
+    this.icalComponents = this.app.store('IcalComponent');
   }
 
   CaldavProvider.prototype = {
@@ -33,6 +34,8 @@ Calendar.ns('Provider').Caldav = (function() {
     canCreateEvent: true,
     canUpdateEvent: true,
     canDeleteEvent: true,
+
+    hasAccountSettings: true,
 
     /**
      * Returns the capabilities of a single event.
@@ -55,7 +58,46 @@ Calendar.ns('Provider').Caldav = (function() {
         'caldav',
         'getAccount',
         account,
-        callback
+        function(err, data) {
+          if (err) {
+            var error = new Error();
+            if (err.constructorName === 'UnauthenticatedError') {
+
+              error.name = 'unauthenticated';
+
+            } else if (
+              err.code !== 'undefined' &&
+              err.constructorName === 'CaldavHttpError'
+            ) {
+              switch (err.code) {
+                case 401:
+                  error.name = 'unauthenticated';
+                  break;
+                case 404:
+                  error.name = 'no-url';
+                  break;
+                case 500:
+                  error.name = 'internal-server-error';
+                  break;
+                default:
+                  error.name = 'default';
+                  break;
+              }
+
+            } else {
+
+              error.name = 'default';
+
+            }
+
+            if (Calendar.DEBUG) {
+              console.error(error.message, error.stack);
+            }
+            callback(error);
+            return;
+          }
+          callback(null, data);
+        }
       );
     },
 
@@ -202,8 +244,27 @@ Calendar.ns('Provider').Caldav = (function() {
             calendarId: calendar._id
           };
 
+          var component = {
+            eventId: event._id,
+            data: remote.icalComponent
+          }
+
+          delete remote.icalComponent;
           event.remote = remote;
-          Local.createEvent.call(self, event, callback);
+
+          var create = Calendar.EventMutations.create({
+            event: event,
+            icalComponent: component
+          });
+
+          create.commit(function(err) {
+            if (err) {
+              callback(err);
+              return;
+            }
+
+            callback(null, create.busytime, create.event);
+          });
         }
       );
     },
@@ -218,22 +279,56 @@ Calendar.ns('Provider').Caldav = (function() {
       var account = this.events.accountFor(event);
       var self = this;
 
-      this.service.request(
-        'caldav',
-        'updateEvent',
-        account,
-        calendar.remote,
-        event.remote,
-        function handleUpdate(err, remote) {
+      function handleUpdate(err, remote) {
+        if (err) {
+          callback(err);
+          return;
+        }
+
+        var component = {
+          eventId: event._id,
+          data: remote.icalComponent
+        }
+
+        delete remote.icalComponent;
+        event.remote = remote;
+
+        var update = Calendar.EventMutations.update({
+          event: event,
+          icalComponent: component
+        });
+
+        update.commit(function(err) {
           if (err) {
             callback(err);
             return;
           }
+          callback(null, update.busytime, update.event);
+        });
 
-          event.remote = remote;
-          Local.updateEvent.call(self, event, busytime, callback);
+      }
+
+      // get the raw ical component
+      this.icalComponents.get(event._id, function(err, ical) {
+        if (err) {
+          callback(err);
+          return;
         }
-      );
+
+        var details = {
+          event: event.remote,
+          icalComponent: ical.data
+        };
+
+        self.service.request(
+          'caldav',
+          'updateEvent',
+          account,
+          calendar.remote,
+          details,
+          handleUpdate
+        );
+      });
     },
 
     deleteEvent: function(event, busytime, callback) {

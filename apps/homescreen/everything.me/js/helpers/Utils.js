@@ -15,12 +15,20 @@ Evme.Utils = new function() {
         "APP_CLICK": "open-in-app",
         "APP_INSTALL": "add-bookmark",
         "IS_APP_INSTALLED": "is-app-installed",
-        "OPEN_URL": "open-url"
+        "OPEN_URL": "open-url",
+        "SHOW_MENU": "show-menu",
+        "HIDE_MENU": "hide-menu",
+        "MENU_HEIGHT": "menu-height",
+        "GET_ALL_APPS": "get-all-apps",
+        "GET_APP_ICON": "get-app-icon",
+        "GET_APP_NAME": "get-app-name",
+        "GET_ICON_SIZE": "get-icon-size"
     };
 
     this.log = function(message) {
-        console.log("(" + (new Date().getTime()) + ") DOAT: " + message);
+        dump("(" + (new Date().getTime()) + ") DOAT: " + message);
     };
+
     this.sendToFFOS = function(type, data) {
         switch (type) {
             case FFOSMessages.APP_CLICK:
@@ -30,10 +38,31 @@ Evme.Utils = new function() {
                 EvmeManager.addBookmark(data);
                 break;
             case FFOSMessages.IS_APP_INSTALLED:
-                return EvmeManager.isAppInstalled(data.url)
+                return EvmeManager.isAppInstalled(data.url);
                 break;
             case FFOSMessages.OPEN_URL:
-                return EvmeManager.openUrl(data.url)
+                return EvmeManager.openUrl(data.url);
+                break;
+            case FFOSMessages.SHOW_MENU:
+                return EvmeManager.menuShow();
+                break;
+            case FFOSMessages.HIDE_MENU:
+                return EvmeManager.menuHide();
+                break;
+            case FFOSMessages.MENU_HEIGHT:
+                return EvmeManager.getMenuHeight();
+                break;
+            case FFOSMessages.GET_ALL_APPS:
+                return EvmeManager.getApps();
+                break;
+            case FFOSMessages.GET_APP_ICON:
+                return EvmeManager.getAppIcon(data);
+                break;
+            case FFOSMessages.GET_APP_NAME:
+                return EvmeManager.getAppName(data);
+                break;
+            case FFOSMessages.GET_ICON_SIZE:
+                return EvmeManager.getIconSize();
                 break;
         }
     };
@@ -42,35 +71,33 @@ Evme.Utils = new function() {
         return CONTAINER_ID;
     };
 
-    this.getRoundIcon = function(imageSrc, size, shadowOffset, callback) {
-        // canvas
-        var canvas = document.createElement("canvas"),
-            ctx = canvas.getContext("2d"),
-            radius = size/2;
-
-        canvas.setAttribute("width", size);
-        canvas.setAttribute("height", size);
-
-        !shadowOffset && (shadowOffset = 0);
-
-        // create clip
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(radius, radius, radius, 0, 2 * Math.PI, false);
-        ctx.clip();
-
-        // generate image
-        var img = new Image()
+    this.getRoundIcon = function(imageSrc, callback) {
+        var size = Evme.Utils.sendToFFOS(Evme.Utils.FFOSMessages.GET_ICON_SIZE) - 2,
+            radius = size/2,
+            img = new Image();
+        
         img.onload = function() {
-            ctx.drawImage(img,0,0, size, size);
-
-            // send to get shadow
-            var data = canvas.toDataURL();
-            callback(data);
+            var canvas = document.createElement("canvas"),
+                ctx = canvas.getContext("2d");
+                
+            canvas.width = size;
+            canvas.height = size;
+            
+            ctx.beginPath();
+            ctx.arc(radius, radius, radius, 0, 2 * Math.PI, false);
+            ctx.clip();
+            
+            ctx.drawImage(img, 0, 0, size, size);
+            
+            callback(canvas.toDataURL());
         };
         img.src = imageSrc;
     };
-    
+
+    this.getKeyboardHeight = function() {
+        return 210;
+    };
+
     this.init = function() {
         userAgent = navigator.userAgent;
         cssPrefix = _getCSSPrefix();
@@ -194,6 +221,97 @@ Evme.Utils = new function() {
         return true;
     };
 
+    this.Apps = new function() {
+        var _this = this,
+            timeoutAppsToDrawLater = null;
+
+        var TIMEOUT_BEFORE_DRAWING_REST_OF_APPS = 100;
+
+        this.print = function(options) {
+            var apps = options.apps,
+                numAppsOffset = options.numAppsOffset || 0,
+                isMore = options.isMore,
+                iconsFormat = options.iconsFormat,
+                $list = options.$list,
+                onDone = options.onDone,
+                hasInstalled = false,
+
+                appsList = {},
+                iconsResult = {
+                    "cached": [],
+                    "missing": []
+                },
+                doLater = [];
+
+            window.clearTimeout(timeoutAppsToDrawLater);
+
+            var docFrag = document.createDocumentFragment();
+            for (var i=0; i<apps.length; i++) {
+                var app = new Evme.App(apps[i], numAppsOffset+i, isMore, _this);
+                var id = apps[i].id;
+                var icon = app.getIcon();
+
+                icon = Evme.IconManager.parse(id, icon, iconsFormat);
+                app.setIcon(icon);
+
+                if (Evme.Utils.isKeyboardVisible() && (isMore || i<Math.max(apps.length/2, 8))) {
+                    var $app = app.draw();
+                    docFrag.appendChild($app[0]);
+                } else {
+                    doLater.push(app);
+                }
+
+                if (app.missingIcon()) {
+                    if (!icon) {
+                        icon = id;
+                    }
+                    iconsResult["missing"].push(icon);
+                } else {
+                    iconsResult["cached"].push(icon);
+                }
+
+                appsList[id] = appsList;
+
+                if (apps[i].installed) {
+                    hasInstalled = true;
+                }
+            }
+
+            if (hasInstalled) {
+                options.obj && options.obj.hasInstalled(true);
+            }
+
+            $list[0].appendChild(docFrag);
+
+            if (doLater.length > 0) {
+                timeoutAppsToDrawLater = window.setTimeout(function(){
+                    var docFrag = document.createDocumentFragment();
+                    for (var i=0; i<doLater.length; i++) {
+                        var $app = doLater[i].draw();
+                        docFrag.appendChild($app[0]);
+                    }
+                    $list[0].appendChild(docFrag);
+
+                    window.setTimeout(function(){
+                        $list.find(".new").removeClass("new");
+                    }, 10);
+
+                    onDone && onDone(appsList);
+                }, TIMEOUT_BEFORE_DRAWING_REST_OF_APPS);
+            } else {
+                onDone && onDone(appsList);
+            }
+
+            if (docFrag.childNodes.length > 0) {
+                window.setTimeout(function(){
+                    $list.find(".new").removeClass("new");
+                }, 10);
+            }
+
+            return iconsResult;
+        }
+    };
+
     this.User = new function() {
         this.creds = function() {
             var credsFromCookie = Evme.Utils.Cookies.get(COOKIE_NAME_CREDENTIALS);
@@ -277,11 +395,6 @@ Evme.Utils = new function() {
         return Evme.Brain.Searcher.getDisplayedQuery();
     };
 
-    this.CONNECTION = {
-        "EVENT_ONLINE": "ononline",
-        "EVENT_OFFLINE": "onoffline"
-    };
-
     var Connection = new function(){
         var _this = this,
             currentIndex,
@@ -315,18 +428,21 @@ Evme.Utils = new function() {
             ];
 
         this.init = function() {
-            window.addEventListener("online", function() {
-                Evme.EventHandler.trigger("Connection", "online");
-            });
-            window.addEventListener("offline", function() {
-                Evme.EventHandler.trigger("Connection", "offline");
-            });
-                
+            window.addEventListener("online", _this.setOnline);
+            window.addEventListener("offline", _this.setOffline);
+
             _this.set();
         };
 
+        this.setOnline = function() {
+            Evme.EventHandler.trigger("Connection", "online");
+        };
+        this.setOffline = function() {
+            Evme.EventHandler.trigger("Connection", "offline");
+        };
+
         this.online = function(callback) {
-            callback(navigator.onLine);
+            callback(window.location.href.match(/_offline=true/)? false : navigator.onLine);
         };
 
         this.get = function(){
@@ -353,6 +469,7 @@ Evme.Utils = new function() {
         // init
         _this.init();
     };
+    this.Connection = Connection;
 
     this.init();
 };

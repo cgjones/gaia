@@ -53,9 +53,8 @@
   var idleTimer;          // Used by deactivate
   var suggestionsTimer;   // Used by updateSuggestions;
 
-  // Tell the worker to release the dictionary memory when the keyboard
-  // is inactive for this long.
-  const releaseDictionaryTimeout = 30000;  // 30 seconds of idle time
+  // Terminate the worker when the keyboard is inactive for this long.
+  const workerTimeout = 30000;  // 30 seconds of idle time
 
   // If we get an autorepeating key is sent to us, don't offer suggestions
   // for this long, until we're pretty certain that the autorepeat
@@ -65,12 +64,11 @@
   // Some keycodes that we use
   const SPACE = KeyEvent.DOM_VK_SPACE;
   const BACKSPACE = KeyEvent.DOM_VK_BACK_SPACE;
+  const RETURN = KeyEvent.DOM_VK_RETURN;
   const PERIOD = 46;
   const QUESTION = 63;
   const EXCLAMATION = 33;
   const COMMA = 44;
-  const SEMICOLON = 59;
-  const COLON = 58;
 
   const WS = /^\s+$/;                    // all whitespace characters
   const UC = /^[A-ZÀ-ÖØ-Þ]+$/;           // all uppercase latin characters
@@ -145,12 +143,14 @@
   }
 
   function deactivate() {
-    if (!worker)
+    if (!worker || idleTimer)
       return;
     idleTimer = setTimeout(function onIdleTimeout() {
-      language = null;
-      worker.postMessage({cmd: 'idle', args: []});
-    }, releaseDictionaryTimeout);
+      // Let's terminate the worker.
+      worker.terminate();
+      worker = null;
+      idleTimer = null;
+    }, workerTimeout);
   }
 
   function displaysCandidates() {
@@ -205,6 +205,11 @@
 
     // If we're offering suggestions, ask the worker to make them now
     updateSuggestions(repeat);
+
+    // Exit symbol layout mode after space or return key is pressed.
+    if (keycode === SPACE || keycode === RETURN) {
+      keyboard.setLayoutPage(LAYOUT_PAGE_DEFAULT);
+    }
   }
 
   // If the user selections one of the suggestions offered by this input method
@@ -336,8 +341,6 @@
     case QUESTION:
     case EXCLAMATION:
     case COMMA:
-    case COLON:
-    case SEMICOLON:
       lastKeyWasSpace = 0;
       if (cursor >= 2 &&
           isWhiteSpace(inputText[cursor - 1]) &&
@@ -361,22 +364,19 @@
         inputText = inputText.substring(0, cursor) +
           inputText.substring(selection);
         selection = 0;
-      }
-      else if (cursor > 0) {
+      } else if (cursor > 0) {
         cursor--;
         inputText = inputText.substring(0, cursor) +
           inputText.substring(cursor + 1);
       }
-    }
-    else {
+    } else {
       if (selection) {
         inputText =
           inputText.substring(0, cursor) +
           String.fromCharCode(keycode) +
           inputText.substring(selection);
         selection = 0;
-      }
-      else {
+      } else {
         inputText =
           inputText.substring(0, cursor) +
           String.fromCharCode(keycode) +
@@ -389,8 +389,10 @@
   function updateCapitalization() {
     // If either the input mode or the input type is one that doesn't
     // want capitalization, then don't alter the state of the keyboard.
-    if (!capitalizing)
+    if (!capitalizing) {
+      keyboard.resetUpperCase();
       return;
+    }
 
     // Set the keyboard to uppercase or lowercase depending
     // on the text around the cursor:

@@ -23,14 +23,6 @@ var ScreenManager = {
   _inTransition: false,
 
   /*
-   * Idle API controls the value of this Boolean.
-   * Together with wake lock, this would decide whether to turn off
-   * the screen when wake lock is released
-   *
-   */
-  _idled: false,
-
-  /*
    * Whether the wake lock is enabled or not
    */
   _screenWakeLocked: false,
@@ -57,6 +49,20 @@ var ScreenManager = {
    * We track the value of the idle timeout pref in this variable.
    */
   _idleTimeout: 0,
+  _idleTimerId: 0,
+
+  /*
+   * If the screen off is triggered by promixity during phon call then
+   * we need wake it up while phone is ended.
+   */
+  _screenOffByProximity: false,
+
+  /*
+   * Request wakelock during in_call state.
+   * To ensure turnScreenOff by proximity event is protected by wakelock for
+   * early suspend only.
+   */
+  _cpuWakeLock: null,
 
   init: function scm_init() {
     window.addEventListener('sleep', this);
@@ -73,14 +79,10 @@ var ScreenManager = {
           case 'screen':
             self._screenWakeLocked = (state == 'locked-foreground');
 
-            if (self._screenWakeLocked) {
+            if (self._screenWakeLocked)
               // Turn screen on if wake lock is acquire
               self.turnScreenOn();
-            } else if (self._idled && self.screenEnabled) {
-              // Turn screen off if we are already idled
-              // and wake lock is released
-              self.turnScreenOff(false);
-            }
+            self._reconfigScreenTimeout();
             break;
 
           case 'cpu':
@@ -91,39 +93,15 @@ var ScreenManager = {
       });
     }
 
-    // When idled, trigger the idle-screen-off process
-    this.idleObserver.onidle = function scm_onidle() {
-      self._idled = true;
-      if (!self._screenWakeLocked && self.isIdleSinceLastScreenOn()) {
-        self.turnScreenOff(self._instantIdleOff);
-      }
-    };
-
-    // When active, cancel the idle-screen-off process & off-transition
-    this.idleObserver.onactive = function scm_onactive() {
-      self._idled = false;
-      if (self._inTransition) {
-        self._inTransition = false;
-        self.setScreenBrightness(self._userBrightness, true);
-      }
-    };
-
     this._firstOn = false;
     SettingsListener.observe('screen.timeout', 60,
     function screenTimeoutChanged(value) {
+      if (typeof value !== 'number')
+        value = parseInt(value);
       self._idleTimeout = value;
-      self.setIdleTimeout(self._idleTimeout);
+      self._setIdleTimeout(self._idleTimeout);
 
       if (!self._firstOn) {
-        (function handleInitlogo() {
-          var initlogo = document.getElementById('initlogo');
-          initlogo.classList.add('hide');
-          initlogo.addEventListener('transitionend', function delInitlogo() {
-            initlogo.removeEventListener('transitionend', delInitlogo);
-            initlogo.parentNode.removeChild(initlogo);
-          });
-        })();
-
         self._firstOn = true;
 
         // During boot up, the brightness was set by bootloader as 0.5,
@@ -146,6 +124,11 @@ var ScreenManager = {
       self._userBrightness = value;
       self.setScreenBrightness(value, false);
     });
+
+    var telephony = window.navigator.mozTelephony;
+    if (telephony) {
+      telephony.addEventListener('callschanged', this);
+    }
   },
 
   handleEvent: function scm_handleEvent(evt) {
@@ -169,6 +152,41 @@ var ScreenManager = {
       case 'wake':
         this.turnScreenOn();
         break;
+
+      case 'userproximity':
+        if (evt.near) {
+          this.turnScreenOff(true);
+        } else {
+          this.turnScreenOn();
+        }
+        this._screenOffByProximity = evt.near;
+        break;
+
+      case 'callschanged':
+        var telephony = window.navigator.mozTelephony;
+        if (!telephony.calls.length) {
+          window.removeEventListener('userproximity', this);
+          if (this._screenOffByProximity) {
+            this.turnScreenOn();
+          }
+          if (this._cpuWakeLock) {
+           this._cpuWakeLock.unlock();
+           this._cpuWakeLock = null;
+          }
+          break;
+        }
+
+        // If the _cpuWakeLock is already set we are in a multiple
+        // call setup, turning the screen on to let user see the
+        // notification.
+        if (this._cpuWakeLock) {
+          this.turnScreenOn();
+          break;
+        }
+
+        this._cpuWakeLock = navigator.requestWakeLock('cpu');
+        window.addEventListener('userproximity', this);
+        break;
     }
   },
 
@@ -183,7 +201,7 @@ var ScreenManager = {
   turnScreenOff: function scm_turnScreenOff(instant) {
     if (!this.screenEnabled)
       return false;
-
+    
     var self = this;
 
     // Remember the current screen brightness. We will restore it when
@@ -191,7 +209,7 @@ var ScreenManager = {
     self._savedBrightness = navigator.mozPower.screenBrightness;
 
     var screenOff = function scm_screenOff() {
-      self.setIdleTimeout(0);
+      self._setIdleTimeout(0);
 
       window.removeEventListener('devicelight', self);
 
@@ -207,7 +225,9 @@ var ScreenManager = {
     };
 
     if (instant) {
-      screenOff();
+      if (!WindowManager.isFtuRunning()) {
+        screenOff();
+      }
       return true;
     }
 
@@ -224,8 +244,15 @@ var ScreenManager = {
   },
 
   turnScreenOn: function scm_turnScreenOn(instant) {
-    if (this.screenEnabled)
+    if (this.screenEnabled) {
+      if (this._inTransition) {
+        // Cancel the dim out
+        this._inTransition = false;
+        this.setScreenBrightness(this._userBrightness, true);
+        this._reconfigScreenTimeout();
+      }
       return false;
+    }
 
     // Set the brightness before the screen is on.
     this.setScreenBrightness(this._savedBrightness, instant);
@@ -244,25 +271,31 @@ var ScreenManager = {
     if (this._deviceLightEnabled)
       window.addEventListener('devicelight', this);
 
+    this._reconfigScreenTimeout();
+    this.fireScreenChangeEvent();
+    return true;
+  },
+
+  _reconfigScreenTimeout: function scm_reconfigScreenTimeout() {
+    // Remove idle timer if screen wake lock is acquired.
+    if (this._screenWakeLocked) {
+      this._setIdleTimeout(0);
     // The screen should be turn off with shorter timeout if
     // it was never unlocked.
-    if (LockScreen.locked) {
-      this.setIdleTimeout(10, true);
+    } else if (LockScreen.locked) {
+      this._setIdleTimeout(10, true);
       var self = this;
       var stopShortIdleTimeout = function scm_stopShortIdleTimeout() {
         window.removeEventListener('unlock', stopShortIdleTimeout);
         window.removeEventListener('lockpanelchange', stopShortIdleTimeout);
-        self.setIdleTimeout(self._idleTimeout, false);
+        self._setIdleTimeout(self._idleTimeout, false);
       };
 
       window.addEventListener('unlock', stopShortIdleTimeout);
       window.addEventListener('lockpanelchange', stopShortIdleTimeout);
     } else {
-      this.setIdleTimeout(this._idleTimeout, false);
+      this._setIdleTimeout(this._idleTimeout, false);
     }
-
-    this.fireScreenChangeEvent();
-    return true;
   },
 
   setScreenBrightness: function scm_setScreenBrightness(brightness, instant) {
@@ -331,16 +364,8 @@ var ScreenManager = {
     }
   },
 
-  // The idleObserver that we will pass to IdleAPI
-  idleObserver: {
-    onidle: null,
-    onactive: null
-  },
-
-  setIdleTimeout: function scm_setIdleTimeout(time, instant) {
-    if (!('addIdleObserver' in navigator))
-      return;
-    navigator.removeIdleObserver(this.idleObserver);
+  _setIdleTimeout: function scm_setIdleTimeout(time, instant) {
+    window.clearIdleTimeout(this._idleTimerId);
 
     // Reset the idled state back to false.
     this._idled = false;
@@ -349,19 +374,16 @@ var ScreenManager = {
     if (time === 0)
       return;
 
-    this._instantIdleOff = instant;
-    this.idleObserver.time = time;
-    navigator.addIdleObserver(this.idleObserver);
-  },
+    var self = this;
+    var idleCallback = function idle_proxy() {
+      self.turnScreenOff(instant);
+    };
+    var activeCallback = function active_proxy() {
+      self.turnScreenOn(true);
+    };
 
-  // When the screen is turned on after a long pause the idle timer of
-  // the device is not reset to 0. As a side effect the handler fire as
-  // soon the screen is turned back on. In order to avoid such unwanted
-  // behavior a manual check is performed against the last time the screen
-  // has been turned on.
-  isIdleSinceLastScreenOn: function scm_isIdleSinceLastScreenOn() {
-    return Date.now() - this._lastScreenOnTimestamp >=
-      (this.idleObserver.time * 1000);
+    this._idleTimerId = window.setIdleTimeout(idleCallback,
+                                              activeCallback, time * 1000);
   },
 
   fireScreenChangeEvent: function scm_fireScreenChangeEvent() {
