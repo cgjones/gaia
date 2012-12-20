@@ -175,7 +175,7 @@ suite('service/caldav', function() {
   });
 
   test('#_formatCalendar', function() {
-    var cal = Factory('caldav.calendar');
+    var cal = Factory.build('caldav.calendar');
     var result = subject._formatCalendar(cal);
 
     assert.equal(result.id, cal.url);
@@ -184,6 +184,8 @@ suite('service/caldav', function() {
     assert.equal(result.syncToken, cal.ctag);
     assert.equal(result.description, cal.description);
     assert.equal(result.color, cal.color);
+    assert.ok(cal.privilegeSet, 'has privilegeSet');
+    assert.equal(result.privilegeSet, cal.privilegeSet);
   });
 
   suite('#_formatEvent', function() {
@@ -353,7 +355,6 @@ suite('service/caldav', function() {
     };
 
     subject.getAccount(given, function(err, data) {
-      console.log(data);
       done(function() {
         assert.ok(!err, 'should succeed');
         assert.equal(data.calendarHome, result.url);
@@ -658,11 +659,14 @@ suite('service/caldav', function() {
 
     test('single', function(done) {
       var expectedComponent = ICAL.parse(fixtures.singleEvent)[1];
-      // normalize expected output
-      expectedComponent = (new ICAL.Component(expectedComponent)).toJSON();
+      var comp = new ICAL.Component(expectedComponent);
+      var timezone = comp.getFirstSubcomponent('vtimezone');
+      var tzid = timezone.getFirstPropertyValue('tzid');
 
       subject.parseEvent(fixtures.singleEvent, function(err, event) {
         done(function() {
+          assert.ok(ICAL.TimezoneService.has(tzid), 'has timezone ' + tzid);
+
           assert.instanceOf(event, ICAL.Event);
           assert.deepEqual(
             event.component.parent.toJSON(),
@@ -832,12 +836,16 @@ suite('service/caldav', function() {
 
     test('success', function(done) {
       results = {
-        '/one': Factory(
+        '/one': Factory.build(
           'caldav.calendar', { name: 'one' }
         ),
 
-        '/two': Factory(
+        '/two': Factory.build(
           'caldav.calendar', { name: 'one' }
+        ),
+
+        '/three': Factory.build(
+          'caldav.calendar', { name: 'no read', privilegeSet: ['foo'] }
         )
       };
 
@@ -866,6 +874,11 @@ suite('service/caldav', function() {
             data['/two'],
             subject._formatCalendar(results['/two']),
             'should format and include /two calendar'
+          );
+
+          assert.ok(
+            !data['/three'],
+            'skips calendars without read privleges'
           );
         });
       });

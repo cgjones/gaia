@@ -233,6 +233,9 @@ body {
   left: 0;
   top: 20px;
 
+  /* Need to leave this in here to prevent flickering. */
+  transform: scale(1);
+
 /*
  * Do not specify height/width here! They should go to
  * Window.prototype.resize() in window_manager.js
@@ -257,7 +260,7 @@ body {
 }
 
 #windows > iframe.appWindow:not(.homescreen).default-background {
-  background: url('./images/splash_screen_generic.png') center center no-repeat #fff;
+  background: url('/shared/resources/branding/splash_screen_generic.png') center center no-repeat #fff;
 }
 
 #windows > iframe.appWindow:not(.active):not(.homescreen):not(.opening):not(.closing) {

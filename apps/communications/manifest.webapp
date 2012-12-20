@@ -78,7 +78,8 @@
     "systemXHR": {},
     "wifi-manage":{},
     "time": {},
-    "audio":{ "channels": ["telephony", "ringer"] }
+    "audio-channel-telephony":{},
+    "audio-channel-ringer":{}
   },
   "orientation": "portrait-primary",
   "activities": {
@@ -94,7 +95,7 @@
       "filters": {
         "type": "webcontacts/contact"
       },
-      "disposition": "window",
+      "disposition": "inline",
       "href": "/contacts/index.html?new",
       "returnValue": true
     },

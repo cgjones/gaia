@@ -488,9 +488,9 @@
         <li>
           <span data-l10n-id="operator-networkType">Network Type
             <select name="ril.radio.preferredNetworkType" id="preferredNetworkType">
-              <option data-l10n-id="operator-networkType-auto" value="wcmda/gsm">Automatic</option>
+              <option data-l10n-id="operator-networkType-auto" value="wcdma/gsm">Automatic</option>
               <option data-l10n-id="operator-networkType-2G" value="gsm">2G only</option>
-              <option data-l10n-id="operator-networkType-3G" value="wcmda">3G only</option>
+              <option data-l10n-id="operator-networkType-3G" value="wcdma">3G only</option>
             </select>
           </span>
         </li>
@@ -706,6 +706,7 @@
             <input type="checkbox" data-type="switch" name="ril.data.enabled"/>
             <span></span>
           </label>
+          <small id="dataConnection-desc"></small>
           <a data-l10n-id="dataConnection">Data Connection</a>
         </li>
         <li>
@@ -973,7 +974,7 @@
       </header>
       <ul>
         <li>
-          <p data-l10n-id="notification-sound">Notifications</p>
+          <p data-l10n-id="ringer-and-notification-sound">Ringer & Notifications</p>
           <label>
             <input type="range" name="audio.volume.notification" step="1" min="0" value="15" max="15">
             <span class="range-icons volume"></span>
@@ -983,13 +984,6 @@
           <p data-l10n-id="alarm-sound">Alarm</p>
           <label>
             <input type="range" name="audio.volume.alarm" step="1" min="0" value="15" max="15">
-            <span class="range-icons volume"></span>
-          </label>
-        </li>
-        <li>
-          <p data-l10n-id="content-sound">Content</p>
-          <label>
-            <input type="range" name="audio.volume.content" step="1" min="0" value="15" max="15">
             <span class="range-icons volume"></span>
           </label>
         </li>
@@ -1920,8 +1914,8 @@
           <a id="os-version" data-l10n-id="software"> Software </a>
         </li>
         <li>
-          <small data-name="deviceinfo.last_updated"></small>
-          <a id="last-update-date" data-l10n-id="last-updated"> Last Updated </a>
+          <small id="last-update-date"></small>
+          <a data-l10n-id="last-updated"> Last Updated </a>
         </li>
         <li>
           <label>
@@ -2195,7 +2189,7 @@
         </li>
         <li>
           <label>
-            <input type="checkbox" name="debug.peformancedata.shared" />
+            <input type="checkbox" name="debug.performance_data.shared" />
             <span></span>
           </label>
           <a data-l10n-id="sharePerformanceData">Submit performance data</a>
@@ -2339,7 +2333,7 @@
           <a id="menuItem-call" class="menu-item" href="#call"
             data-l10n-id="callSettings">Call Settings</a>
         </li>
-        <li>
+        <li id="data-connectivity">
           <small id="data-desc" class="menu-item-desc"></small>
           <a id="menuItem-cellularAndData" class="menu-item" href="#carrier" data-l10n-id="cellularAndData">Cellular &amp; Data</a>
         </li>

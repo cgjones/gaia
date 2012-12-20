@@ -11,6 +11,7 @@
     "alarms": {},
     "browser":{},
     "power":{},
+    "fmradio":{},
     "webapps-manage":{},
     "mobileconnection":{},
     "bluetooth":{},
@@ -31,7 +32,8 @@
     "embed-apps":{},
     "background-sensors":{},
     "permissions":{},
-    "audio":{ "channels": ["publicnotification", "notification"] }
+    "audio-channel-publicnotification":{},
+    "audio-channel-notification":{}
   },
   "locales": {
     "ar": {

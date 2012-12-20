@@ -15,7 +15,7 @@
     "settings":{ "access": "readonly" },
     "camera":{},
     "geolocation":{},
-    "audio":{ "channels": ["publicnotification"] }
+    "audio-channel-publicnotification":{}
   },
   "activities": {
     "record": {
@@ -29,7 +29,8 @@
         "type": ["image/jpeg"]
        },
       "returnValue": true,
-      "disposition": "inline"
+      "disposition": "inline",
+      "href": "/index.html#pick"
     }
   },
   "locales": {

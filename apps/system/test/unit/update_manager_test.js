@@ -1,3 +1,5 @@
+'use strict';
+
 requireApp('system/js/update_manager.js');
 
 requireApp('system/test/unit/mock_app.js');
@@ -11,6 +13,8 @@ requireApp('system/test/unit/mock_settings_listener.js');
 requireApp('system/test/unit/mock_statusbar.js');
 requireApp('system/test/unit/mock_notification_screen.js');
 requireApp('system/test/unit/mock_navigator_settings.js');
+requireApp('system/test/unit/mock_navigator_wake_lock.js');
+requireApp('system/test/unit/mock_l10n.js');
 
 requireApp('system/test/unit/mocks_helper.js');
 
@@ -47,7 +51,6 @@ suite('system/UpdateManager', function() {
 
   var tinyTimeout = 5;
   var lastDispatchedEvent = null;
-  var lastWakeLock = null;
 
   var mocksHelper;
 
@@ -57,26 +60,10 @@ suite('system/UpdateManager', function() {
     navigator.mozSettings = MockNavigatorSettings;
 
     realL10n = navigator.mozL10n;
-    navigator.mozL10n = {
-      get: function get(key, params) {
-        if (params)
-          return key + JSON.stringify(params);
-
-        return key;
-      }
-    };
+    navigator.mozL10n = MockL10n;
 
     realRequestWakeLock = navigator.requestWakeLock;
-    navigator.requestWakeLock = function(lock) {
-      lastWakeLock = {
-        released: false,
-        topic: lock,
-        unlock: function() {
-          this.released = true;
-        }
-      };
-      return lastWakeLock;
-    };
+    navigator.requestWakeLock = MockNavigatorWakeLock.requestWakeLock;
 
     realDispatchEvent = UpdateManager._dispatchEvent;
     UpdateManager._dispatchEvent = function fakeDispatch(type, value) {
@@ -96,6 +83,8 @@ suite('system/UpdateManager', function() {
 
     navigator.mozL10n = realL10n;
     navigator.requestWakeLock = realRequestWakeLock;
+    realRequestWakeLock = null;
+
     UpdateManager._dispatchEvent = realDispatchEvent;
 
     mocksHelper.suiteTeardown();
@@ -166,6 +155,7 @@ suite('system/UpdateManager', function() {
     UpdateManager.updatesQueue = [];
     UpdateManager.downloadsQueue = [];
     UpdateManager._downloading = false;
+    UpdateManager._uncompressing = false;
     UpdateManager.container = null;
     UpdateManager.message = null;
     UpdateManager.toaster = null;
@@ -185,7 +175,8 @@ suite('system/UpdateManager', function() {
     fakeDialog.parentNode.removeChild(fakeDialog);
 
     lastDispatchedEvent = null;
-    lastWakeLock = null;
+    MockNavigatorWakeLock.mTeardown();
+    MockNavigatorSettings.mTeardown();
   });
 
   suite('init', function() {
@@ -322,10 +313,14 @@ suite('system/UpdateManager', function() {
         assert.equal(42, UpdateManager.updatesQueue[lastIndex].size);
       });
 
-      test('should not add a system updatable if there is one', function() {
+      test('should not add or instanciate a system updatable if there is one',
+      function() {
         var initialLength = UpdateManager.updatesQueue.length;
+
         UpdateManager.handleEvent(event);
-        assert.equal(initialLength, UpdateManager.updatesQueue.length);
+
+        assert.equal(UpdateManager.updatesQueue.length, initialLength);
+        assert.equal(MockSystemUpdatable.mInstancesCount, 1);
       });
     });
   });
@@ -404,6 +399,57 @@ suite('system/UpdateManager', function() {
         UpdateManager.downloadProgressed(-100);
         assert.equal('downloadingUpdateMessage{"progress":"1.21 kB"}',
                      UpdateManager.message.textContent);
+      });
+    });
+
+    suite('uncompress display', function() {
+      var systemUpdatable;
+
+      setup(function() {
+        systemUpdatable = new MockSystemUpdatable(42);
+      });
+
+      suite('when we only have the system update', function() {
+        setup(function() {
+          UpdateManager.addToUpdatesQueue(systemUpdatable);
+          UpdateManager.addToDownloadsQueue(systemUpdatable);
+          UpdateManager.startedUncompressing();
+        });
+
+        test('should render in uncompressing mode', function() {
+          assert.equal(UpdateManager.message.textContent,
+                       'uncompressingMessage');
+        });
+      });
+
+      suite('when we have various ongoing updates', function() {
+        setup(function() {
+          UpdateManager.addToUpdatableApps(uAppWithDownloadAvailable);
+          UpdateManager.addToUpdatesQueue(uAppWithDownloadAvailable);
+          UpdateManager.addToDownloadsQueue(uAppWithDownloadAvailable);
+
+          UpdateManager.addToUpdatesQueue(systemUpdatable);
+          UpdateManager.addToDownloadsQueue(systemUpdatable);
+
+          UpdateManager.startedUncompressing();
+        });
+
+        test('should stay in downloading mode', function() {
+          assert.include(UpdateManager.message.textContent,
+                          'downloadingUpdateMessage');
+        });
+
+        suite('once the app updates are done', function() {
+          setup(function() {
+            UpdateManager.removeFromDownloadsQueue(uAppWithDownloadAvailable);
+            UpdateManager.removeFromUpdatesQueue(uAppWithDownloadAvailable);
+          });
+
+          test('should render in uncompressing mode', function() {
+            assert.equal(UpdateManager.message.textContent,
+                         'uncompressingMessage');
+          });
+        });
       });
     });
 
@@ -1031,8 +1077,8 @@ suite('system/UpdateManager', function() {
           });
 
           test('should request wifi wake lock', function() {
-            assert.equal('wifi', lastWakeLock.topic);
-            assert.isFalse(lastWakeLock.released);
+            assert.equal('wifi', MockNavigatorWakeLock.mLastWakeLock.topic);
+            assert.isFalse(MockNavigatorWakeLock.mLastWakeLock.released);
           });
         });
 
@@ -1086,9 +1132,16 @@ suite('system/UpdateManager', function() {
           });
 
           test('should release the wifi wake lock', function() {
-            assert.equal('wifi', lastWakeLock.topic);
-            assert.isTrue(lastWakeLock.released);
+            assert.equal('wifi', MockNavigatorWakeLock.mLastWakeLock.topic);
+            assert.isTrue(MockNavigatorWakeLock.mLastWakeLock.released);
           });
+        });
+
+        test('should not break if wifi unlock throws an exception',
+             function() {
+          MockNavigatorWakeLock.mThrowAtNextUnlock();
+          UpdateManager.removeFromDownloadsQueue(updatableApp);
+          assert.ok(true);
         });
 
         test('should remove system updates too', function() {

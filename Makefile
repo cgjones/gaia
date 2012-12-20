@@ -309,6 +309,7 @@ define run-js-command
 	const GAIA_LOCALES_PATH = "$(GAIA_LOCALES_PATH)";                           \
 	const BUILD_APP_NAME = "$(BUILD_APP_NAME)";                                 \
 	const PRODUCTION = "$(PRODUCTION)";                                         \
+	const OFFICIAL = "$(MOZILLA_OFFICIAL)";                                     \
 	const GAIA_ENGINE = "xpcshell";                                             \
 	';                                                                          \
 	$(XULRUNNERSDK) $(XPCSHELLSDK) -e "$$JS_CONSTS" -f build/utils.js "build/$(strip $1).js"
@@ -603,15 +604,21 @@ reset-gaia: purge install-gaia install-settings-defaults
 # remove the memories and apps on the phone
 purge:
 	$(ADB) shell stop b2g
-	$(ADB) shell rm -r $(MSYS_FIX)/data/local/*
-	$(ADB) shell mkdir -p $(MSYS_FIX)/data/local/tmp
+	@(for FILE in `$(ADB) shell ls $(MSYS_FIX)/data/local | tr -d '\r'`; \
+	do \
+		[ $$FILE != 'tmp' ] && $(ADB) shell rm -r $(MSYS_FIX)/data/local/$$FILE; \
+	done);
 	$(ADB) shell rm -r $(MSYS_FIX)/cache/*
 	$(ADB) shell rm -r $(MSYS_FIX)/data/b2g/*
 	$(ADB) shell rm -r $(MSYS_FIX)$(GAIA_INSTALL_PARENT)/webapps
 
 # Build the settings.json file from settings.py
+ifeq ($(NOFTU), 1)
+SETTINGS_ARG=--noftu
+endif
+
 profile/settings.json: build/settings.py build/wallpaper.jpg
-	python build/settings.py --console --homescreen $(SCHEME)homescreen.$(GAIA_DOMAIN)$(GAIA_PORT)/manifest.webapp --ftu $(SCHEME)communications.$(GAIA_DOMAIN)$(GAIA_PORT)/manifest.webapp --wallpaper build/wallpaper.jpg --output $@
+	python build/settings.py $(SETTINGS_ARG) --console --homescreen $(SCHEME)homescreen.$(GAIA_DOMAIN)$(GAIA_PORT)/manifest.webapp --ftu $(SCHEME)communications.$(GAIA_DOMAIN)$(GAIA_PORT)/manifest.webapp --wallpaper build/wallpaper.jpg --override build/custom-settings.json --output $@
 
 # push profile/settings.json to the phone
 install-settings-defaults: profile/settings.json
