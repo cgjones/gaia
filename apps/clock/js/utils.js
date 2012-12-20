@@ -251,7 +251,8 @@ var ValuePicker = (function() {
     if ('touches' in evt) {
       evt = evt.touches[0];
     }
-    return { x: evt.pageX, y: evt.pageY, timestamp: evt.timeStamp };
+    return { x: evt.pageX, y: evt.pageY,
+             timestamp: MouseEventShim.getEventTimestamp(evt) };
   }
 
   //
@@ -268,6 +269,10 @@ var ValuePicker = (function() {
   function calcSpeed() {
     var movingSpace = startEvent.y - currentEvent.y;
     var deltaTime = currentEvent.timestamp - startEvent.timestamp;
+    // Synthetic mouse events have timestamps in microseconds 
+    // instead of milliseconds.
+    if (currentEvent.timestamp > 2 * Date.now())
+      deltaTime = deltaTime / 1000;
     var speed = movingSpace / deltaTime;
     currentSpeed = parseFloat(speed.toFixed(2));
   }

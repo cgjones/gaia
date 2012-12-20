@@ -37,7 +37,7 @@ const GridManager = (function() {
   function handleEvent(evt) {
     switch (evt.type) {
       case 'mousedown':
-        touchStartTimestamp = evt.timeStamp;
+        touchStartTimestamp = MouseEventShim.getEventTimestamp(evt);
         evt.stopPropagation();
         startEvent = evt;
         attachEvents();
@@ -147,7 +147,7 @@ const GridManager = (function() {
         container.addEventListener('mousemove', pan, true);
 
         window.addEventListener('mouseup', function removePanHandler(e) {
-          touchEndTimestamp = e.timeStamp;
+          touchEndTimestamp = MouseEventShim.getEventTimestamp(e);
           window.removeEventListener('mouseup', removePanHandler, true);
 
           container.removeEventListener('mousemove', pan, true);

@@ -190,7 +190,8 @@ var frequencyDialer = {
       if ('touches' in evt) {
         evt = evt.touches[0];
       }
-      return { x: evt.clientX, y: evt.clientX, timestamp: evt.timeStamp };
+      return { x: evt.clientX, y: evt.clientX,
+               timestamp: MouseEventShim.getEventTimestamp(evt) };
     }
 
     var self = this;
@@ -205,6 +206,10 @@ var frequencyDialer = {
     function _calcSpeed() {
       var movingSpace = startEvent.x - currentEvent.x;
       var deltaTime = currentEvent.timestamp - startEvent.timestamp;
+      // Synthetic mouse events have timestamps in microseconds 
+      // instead of milliseconds.
+      if (currentEvent.timestamp > 2 * Date.now())
+        deltaTime = deltaTime / 1000;
       var speed = movingSpace / deltaTime;
       currentSpeed = parseFloat(speed.toFixed(2));
     }
