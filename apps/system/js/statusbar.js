@@ -608,4 +608,11 @@ var StatusBar = {
   }
 };
 
-StatusBar.init();
+if (navigator.mozL10n.readyState == 'complete' ||
+    navigator.mozL10n.readyState == 'interactive') {
+  StatusBar.init();
+} else {
+  window.addEventListener('localized', StatusBar.init.bind(StatusBar));
+}
+
+

@@ -683,7 +683,7 @@ var LockScreen = {
     var timeFormat = _('shortTimeFormat') || '%H:%M';
     var dateFormat = _('longDateFormat') || '%A %e %B';
     var time = f.localeFormat(d, timeFormat);
-    this.clockNumbers.textContent = time.match(/([012]?\d):[0-5]\d/g);
+    this.clockNumbers.textContent = time.match(/([012]?\d).[0-5]\d/g);
     this.clockMeridiem.textContent = (time.match(/AM|PM/i) || []).join('');
     this.date.textContent = f.localeFormat(d, dateFormat);
 
@@ -771,10 +771,11 @@ var LockScreen = {
     }
     var operatorInfos = MobileOperator.userFacingInfo(conn);
     if (operatorInfos.carrier) {
-      connstateLine2.textContent = operatorInfos.carrier + ' ' + operatorInfos.region;
+      connstateLine2.textContent = operatorInfos.carrier + ' ' +
+        operatorInfos.region;
     }
 
-    var operator = operatorInfos.operator
+    var operator = operatorInfos.operator;
 
     if (voice.roaming) {
       var l10nArgs = { operator: operator };
@@ -897,4 +898,10 @@ var LockScreen = {
   }
 };
 
-LockScreen.init();
+if (navigator.mozL10n.readyState == 'complete' ||
+    navigator.mozL10n.readyState == 'interactive') {
+  LockScreen.init();
+} else {
+  window.addEventListener('localized', LockScreen.init.bind(LockScreen));
+}
+

@@ -834,7 +834,7 @@
       } else if (arg in gL10nData) {
         sub = gL10nData[arg][gTextProp];
       } else {
-        consoleWarn('argument {{' + arg + '}} for #' + key + ' is undefined.');
+        consoleLog('argument {{' + arg + '}} for #' + key + ' is undefined.');
         return str;
       }
 
@@ -848,8 +848,9 @@
   // translate an HTML element
   function translateElement(element) {
     var l10n = getL10nAttributes(element);
-    if (!l10n.id)
-      return;
+    if (!l10n.id) {
+        return;
+    }
 
     // get the related l10n object
     var data = getL10nData(l10n.id, l10n.args);
@@ -857,7 +858,7 @@
       consoleWarn('#' + l10n.id + ' is undefined.');
       return;
     }
-
+    
     // translate element (TODO: security checks?)
     if (data[gTextProp]) { // XXX
       if (element.children.length === 0) {
