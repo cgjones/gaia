@@ -132,6 +132,18 @@ var LockScreen = {
       this.updateConnState();
       this.connstate.hidden = false;
     }
+    if (navigator && navigator.mozCellBroadcast) {
+      var self = this;
+      navigator.mozCellBroadcast.onreceived = function onReceived(event) {
+        var msg = event.message;
+        if (conn &&
+            conn.voice.network.mcc === MobileOperator.BRAZIL_MCC &&
+            msg.messageId === MobileOperator.BRAZIL_CELLBROADCAST_CHANNEL) {
+          self.cellbroadcastLabel = msg.body;
+          self.updateConnState();
+        }
+      };
+    }
 
     var self = this;
     SettingsListener.observe('lockscreen.enabled', true, function(value) {
@@ -683,7 +695,7 @@ var LockScreen = {
     var timeFormat = _('shortTimeFormat') || '%H:%M';
     var dateFormat = _('longDateFormat') || '%A %e %B';
     var time = f.localeFormat(d, timeFormat);
-    this.clockNumbers.textContent = time.match(/([012]?\d):[0-5]\d/g);
+    this.clockNumbers.textContent = time.match(/([012]?\d).[0-5]\d/g);
     this.clockMeridiem.textContent = (time.match(/AM|PM/i) || []).join('');
     this.date.textContent = f.localeFormat(d, dateFormat);
 
@@ -770,11 +782,14 @@ var LockScreen = {
       return;
     }
     var operatorInfos = MobileOperator.userFacingInfo(conn);
-    if (operatorInfos.carrier) {
-      connstateLine2.textContent = operatorInfos.carrier + ' ' + operatorInfos.region;
+    if (this.cellbroadcastLabel) {
+      connstateLine2.textContent = this.cellbroadcastLabel;
+    } else if (operatorInfos.carrier) {
+      connstateLine2.textContent = operatorInfos.carrier + ' ' +
+        operatorInfos.region;
     }
 
-    var operator = operatorInfos.operator
+    var operator = operatorInfos.operator;
 
     if (voice.roaming) {
       var l10nArgs = { operator: operator };
@@ -897,4 +912,10 @@ var LockScreen = {
   }
 };
 
-LockScreen.init();
+if (navigator.mozL10n.readyState == 'complete' ||
+    navigator.mozL10n.readyState == 'interactive') {
+  LockScreen.init();
+} else {
+  window.addEventListener('localized', LockScreen.init.bind(LockScreen));
+}
+

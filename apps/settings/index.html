@@ -38,6 +38,7 @@
     <link rel="resource" type="application/l10n" href="locales/locales.ini"/>
     <script type="application/javascript" src="shared/js/l10n.js"></script>
     <script type="application/javascript" src="shared/js/l10n_date.js"></script>
+    <script type="application/javascript" defer src="shared/js/manifest_helper.js"></script>
 
     <!-- Specific code -->
     <script type="application/javascript" defer src="js/utils.js"></script>
@@ -208,21 +209,21 @@
       <ul>
         <li>
           <label>
-            <input type="radio" name="wifi.wps.method" value="pbc" checked />
+            <input type="radio" data-setting="wifi.wps.method" name="wpsMethodSelection" value="pbc" checked />
             <span></span>
           </label>
           <a data-l10n-id="wpsPbcLabel">Button connection</a>
         </li>
         <li>
           <label>
-            <input type="radio" name="wifi.wps.method" value="myPin" />
+            <input type="radio" data-setting="wifi.wps.method" name="wpsMethodSelection" value="myPin" />
             <span></span>
           </label>
           <a data-l10n-id="wpsMyPinLabel">My PIN connection</a>
         </li>
         <li>
           <label>
-            <input type="radio" name="wifi.wps.method" value="apPin" />
+            <input type="radio" data-setting="wifi.wps.method" name="wpsMethodSelection" value="apPin" />
             <span></span>
           </label>
           <a data-l10n-id="wpsApPinLabel">AP PIN connection</a>
@@ -343,7 +344,10 @@
     <section role="region" hidden id="call-cf-notReachableSettings">
       <!--
       <header>
-        <a href="#call"><span class="icon icon-back">back</span></a>
+        <button type="reset"><span data-l10n-id="back" class="icon icon-back">Back</span></button>
+        <menu type="toolbar">
+          <button type="submit"><span data-l10n-id="ok">OK</span></button>
+        </menu>
         <h1 data-l10n-id="callForwarding"> Call forwarding </h1>
       </header>
 
@@ -354,7 +358,7 @@
         </li>
         <li>
           <label>
-            <input type="checkbox" data-type="switch" name="ril.cf.notreachable.enabled"/>
+            <input type="checkbox" data-type="switch" data-setting="ril.cf.notreachable.enabled"/>
             <span></span>
           </label>
           <a data-l10n-id="callForwardingNotReachable"> Forward when unreachable </a>
@@ -367,7 +371,10 @@
     <section role="region" hidden id="call-cf-noReplySettings">
       <!--
       <header>
-        <a href="#call"><span class="icon icon-back">back</span></a>
+        <button type="reset"><span data-l10n-id="back" class="icon icon-back">Back</span></button>
+        <menu type="toolbar">
+          <button type="submit"><span data-l10n-id="ok">OK</span></button>
+        </menu>
         <h1 data-l10n-id="callForwarding"> Call forwarding </h1>
       </header>
 
@@ -378,7 +385,7 @@
         </li>
         <li>
           <label>
-            <input type="checkbox" data-type="switch" name="ril.cf.noreply.enabled"/>
+            <input type="checkbox" data-type="switch" data-setting="ril.cf.noreply.enabled"/>
             <span></span>
           </label>
           <a data-l10n-id="callForwardingNoReply"> Forward when unanswered </a>
@@ -391,7 +398,10 @@
     <section role="region" hidden id="call-cf-mobileBusySettings">
       <!--
       <header>
-        <a href="#call"><span class="icon icon-back">back</span></a>
+        <button type="reset"><span data-l10n-id="back" class="icon icon-back">Back</span></button>
+        <menu type="toolbar">
+          <button type="submit"><span data-l10n-id="ok">OK</span></button>
+        </menu>
         <h1 data-l10n-id="callForwarding"> Call forwarding </h1>
       </header>
 
@@ -402,7 +412,7 @@
         </li>
         <li>
           <label>
-            <input type="checkbox" data-type="switch" name="ril.cf.mobilebusy.enabled"/>
+            <input type="checkbox" data-type="switch" data-setting="ril.cf.mobilebusy.enabled"/>
             <span></span>
           </label>
           <a data-l10n-id="callForwardingMobileBusy"> Forward when busy </a>
@@ -415,7 +425,10 @@
     <section role="region" hidden id="call-cf-unconditionalSettings">
       <!--
       <header>
-        <a href="#call"><span class="icon icon-back">back</span></a>
+        <button type="reset"><span data-l10n-id="back" class="icon icon-back">Back</span></button>
+        <menu type="toolbar">
+          <button type="submit"><span data-l10n-id="ok">OK</span></button>
+        </menu>
         <h1 data-l10n-id="callForwarding"> Call forwarding </h1>
       </header>
 
@@ -426,7 +439,7 @@
         </li>
         <li>
           <label>
-            <input type="checkbox" data-type="switch" name="ril.cf.unconditional.enabled"/>
+            <input type="checkbox" data-type="switch" data-setting="ril.cf.unconditional.enabled"/>
             <span></span>
           </label>
           <a data-l10n-id="callForwardingUnconditional">Always forward</a>
@@ -444,9 +457,12 @@
       </header>
 
       <ul>
-        <li>
-          <label>
-            <input type="checkbox" data-type="switch" name="ril.callwaiting.enabled"/>
+        <li id="menuItem-callWaiting" data-state="off">
+          <label class="checkbox-label">
+            <input type="checkbox" data-type="switch"/>
+            <span></span>
+          </label>
+          <label class="alert-label" hidden>
             <span></span>
           </label>
           <a data-l10n-id="callWaiting">Call Waiting</a>
@@ -459,21 +475,41 @@
       <ul>
         <li id="li-cfu-desc" class="disabled">
           <small id="cfu-desc"></small>
-          <a id="menuItem-callForwardingUnconditional" href="#call-cf-unconditionalSettings" data-l10n-id="callForwardingUnconditional">Always forward</a>
+          <a id="menuItem-callForwardingUnconditional" data-href="#call-cf-unconditionalSettings" data-l10n-id="callForwardingUnconditional">Always forward</a>
         </li>
         <li id="li-cfmb-desc" class="disabled">
           <small id="cfmb-desc"></small>
-          <a id="menuItem-callForwardingMobileBusy" href="#call-cf-mobileBusySettings" data-l10n-id="callForwardingMobileBusy">Forward when busy</a>
+          <a id="menuItem-callForwardingMobileBusy" data-href="#call-cf-mobileBusySettings" data-l10n-id="callForwardingMobileBusy">Forward when busy</a>
         </li>
         <li id="li-cfnrep-desc" class="disabled">
           <small id="cfnrep-desc"></small>
-          <a id="menuItem-callForwardingNoReply" href="#call-cf-noReplySettings" data-l10n-id="callForwardingNoReply">Forward when unanswered</a>
+          <a id="menuItem-callForwardingNoReply" data-href="#call-cf-noReplySettings" data-l10n-id="callForwardingNoReply">Forward when unanswered</a>
         </li>
         <li id="li-cfnrea-desc" class="disabled">
           <small id="cfnrea-desc"></small>
-          <a id="menuItem-callForwardingNotReachable" href="#call-cf-notReachableSettings" data-l10n-id="callForwardingNotReachable">Forward when unreachable</a>
+          <a id="menuItem-callForwardingNotReachable" data-href="#call-cf-notReachableSettings" data-l10n-id="callForwardingNotReachable">Forward when unreachable</a>
         </li>
       </ul>
+
+      <form role="dialog" data-type="confirm" hidden class="cw-alert">
+        <section>
+          <h1 data-l10n-id="confirmCallWaitingTitle">Unable to confirm call waiting preferences</h1>
+          <p>
+            <strong data-l10n-id="confirmCallWaitingDesc">The device is currently unable to communicate with the carrier. Try setting the preference again.</strong>
+          </p>
+          <p class="cw-alert-sub-p">
+            <label class="cw-alert-checkbox-label">
+              <input type="checkbox" data-type="switch"/>
+              <span></span>
+            </label>
+            <span data-l10n-id="callWaiting">Call Waiting</span>
+          </p>
+        </section>
+        <menu>
+          <button class="cw-alert-cancel" data-l10n-id="cancel">Cancel</button>
+          <button class="cw-alert-set recommend" data-l10n-id="set">Set</button>
+        </menu>
+      </form>
 
       <script type="application/javascript" src="js/call.js"></script>
       -->
@@ -540,7 +576,7 @@
       <ul class="apnSettings-list">
         <li class="apnSettings-custom">
           <label>
-            <input type="radio" name="ril.data.carrier" value="_custom_" checked />
+            <input type="radio" data-setting="ril.data.carrier" name="dataApnSettingsCarrier" value="_custom_" checked />
             <span></span>
           </label>
           <a data-l10n-id="custom">(custom settings)</a>
@@ -589,7 +625,7 @@
       <ul class="apnSettings-list">
         <li class="apnSettings-custom">
           <label>
-            <input type="radio" name="ril.mms.carrier" value="_custom_" checked />
+            <input type="radio" data-setting="ril.mms.carrier" name="mmsApnSettingsCarrier" value="_custom_" checked />
             <span></span>
           </label>
           <a data-l10n-id="custom">(custom settings)</a>
@@ -650,7 +686,7 @@
       <ul class="apnSettings-list">
         <li class="apnSettings-custom">
           <label>
-            <input type="radio" name="ril.supl.carrier" value="_custom_" checked />
+            <input type="radio" data-setting="ril.supl.carrier" name="suplApnSettingsCarrier" value="_custom_" checked />
             <span></span>
           </label>
           <a data-l10n-id="custom">(custom settings)</a>
@@ -1528,15 +1564,6 @@
         <h2 data-l10n-id="permissions">Permissions</h2>
       </header>
       <ul>
-        <li>
-          <span>settings
-            <select>
-              <option>ask</option>
-              <option>deny</option>
-              <option>allow</option>
-            </select>
-          </span>
-        </li>
       </ul>
 
       <header>
@@ -1674,7 +1701,7 @@
             <input type="checkbox" name="debug.console.enabled"/>
             <span></span>
           </label>
-          <a data-l10n-id="console-enabled">Console Enabled</a>
+          <a data-l10n-id="console-enabled">Console enabled</a>
         </li>
         <li>
           <label>
@@ -2176,9 +2203,8 @@
       <ul>
         <li>
           <label for="" class="description">
-            <span data-l10n-id="performanceDataInfo2">
-              Make Browser OS faster and easier to use by sharing
-              information over Wi-Fi about your phone’s performance.
+            <span data-l10n-id="performanceDataInfo">
+              Help us improve Browser OS by sharing data about your phone.
             </span>
             <a href="https://support.mozilla.org/kb/how-can-i-help-submitting-mobile-performance-data" data-l10n-id="learn-more" class="link-text">Learn More</a>
           </label>

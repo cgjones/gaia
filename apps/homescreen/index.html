@@ -13,6 +13,7 @@
     <!-- Shared code -->
     <script type="text/javascript" src="shared/js/l10n.js"></script>
     <script type="text/javascript" src="shared/js/l10n_date.js"></script>
+    <script type="text/javascript" defer src="shared/js/manifest_helper.js"></script>
     <script type="text/javascript" src="shared/js/mouse_event_shim.js"></script>
 
     <link rel="stylesheet" type="text/css" href="shared/style_unstable/progress_activity.css">
@@ -81,12 +82,12 @@
                         <fieldset>
                             <div id="search-q-bg">
                                 <input type="text" id="search-q" name="search-q" maxlength="128" autocorrect="off" autocapitalize="off" />
-                                <span id="default-text"></span>
+                                <span id="default-text" data-l10n-id="evme-searchbar-default"></span>
                             </div>
                             <div id="helper-tip"><b></b></div>
                         </fieldset>
                     </form>
-                    <b id="button-clear"></b>
+                    <b id="button-clear" data-l10n-id="evme-searchbar-clear"></b>
                 </div>
                 <div id="header">
                     <div id="helper-header">
@@ -95,7 +96,6 @@
                             <div id="helper">
                                 <ul></ul>
                             </div>
-                            <span class="loading"></span>
                         </div>
                     </div>
                 </div>

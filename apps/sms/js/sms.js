@@ -5,6 +5,7 @@
 
 var MessageManager = {
   init: function mm_init() {
+    this.initialized = true;
     // Init PhoneNumberManager for solving country code issue.
     PhoneNumberManager.init();
     // Init Pending DB. Once it will be loaded will render threads
@@ -40,7 +41,7 @@ var MessageManager = {
           break;
         if (num == sender) {
           //Append message and mark as unread
-          MessageManager.markMessageRead(event.message.id, true, function() {
+          MessageManager.markMessagesRead([event.message.id], true, function() {
             MessageManager.getMessages(ThreadListUI.renderThreads);
           });
           ThreadUI.appendMessage(event.message, function() {
@@ -122,6 +123,11 @@ var MessageManager = {
                 messageInput.focus();
 
               } else {
+                // As soon as we click in the thread, we visually mark it
+                // as read.
+                document.getElementById('thread_' + num)
+                        .getElementsByTagName('a')[0].classList
+                        .remove('unread');
                 this.getMessages(ThreadUI.renderMessages,
                   filter, true, function() {
                     MessageManager.slide(function() {
@@ -251,30 +257,29 @@ var MessageManager = {
       callback();
   },
 
-  markMessageRead: function mm_markMessageRead(id, value, callback) {
-    if (navigator.mozSms) {
-      var req = navigator.mozSms.markMessageRead(id, value);
-      req.onsuccess = function onsuccess() {
-        callback(req.result);
-      };
-
-      req.onerror = function onerror() {
-        var msg = 'Mark message error in the database. Error: ' + req.errorCode;
-        console.log(msg);
-        callback(null);
-      };
-    }
-  },
-
   markMessagesRead: function mm_markMessagesRead(list, value, callback) {
-    // TODO Will be fixed in https://bugzilla.mozilla.org/show_bug.cgi?id=771463
-    for (var i = 0; i < list.length; i++) {
-      if (i == list.length - 1) {
-        MessageManager.markMessageRead(list[i], value, callback);
-      } else {
-        MessageManager.markMessageRead(list[i], value);
-      }
+    if (!navigator.mozSms || !list.length) {
+      return;
     }
+
+    // We chain the calls to the API in a way that we make no call to
+    // 'markMessageRead' until a previous call is completed. This way any
+    // other potential call to the API, like the one for getting a message
+    // list, could be done within the calls to mark the messages as read.
+    var req = navigator.mozSms.markMessageRead(list.pop(), value);
+    req.onsuccess = (function onsuccess() {
+      if (!list.length && callback) {
+        callback(req.result);
+        return;
+      }
+      this.markMessagesRead(list, value, callback);
+    }).bind(this);
+
+    req.onerror = function onerror() {
+      if (callback) {
+        callback(null);
+      }
+    };
   }
 };
 
@@ -734,17 +739,17 @@ var ThreadUI = {
     this.sendButton.addEventListener('mousedown',
       function btnDown(event) {
         event.preventDefault();
-        event.target.classList.add("active");
+        event.target.classList.add('active');
       }
     );
     this.sendButton.addEventListener('mouseup',
       function btnUp(event) {
-        event.target.classList.remove("active");
+        event.target.classList.remove('active');
       }
     );
     this.sendButton.addEventListener('mouseout',
       function mouseOut(event) {
-        event.target.classList.remove("active");
+        event.target.classList.remove('active');
       }
     );
 
@@ -1628,7 +1633,9 @@ window.addEventListener('resize', function resize() {
 });
 
 window.addEventListener('localized', function showBody() {
-  MessageManager.init();
+  if (!MessageManager.initialized) {
+    MessageManager.init();
+  }
 
   // Set the 'lang' and 'dir' attributes to <html> when the page is translated
   document.documentElement.lang = navigator.mozL10n.language.code;
@@ -1636,7 +1643,7 @@ window.addEventListener('localized', function showBody() {
 });
 
 function showThreadFromSystemMessage(number) {
-  var showAction = function act_action() {
+  var showAction = function act_action(number) {
     var currentLocation = window.location.hash;
     switch (currentLocation) {
       case '#thread-list':
@@ -1649,7 +1656,7 @@ function showThreadFromSystemMessage(number) {
         break;
       case '#edit':
         history.back();
-        showAction();
+        showAction(number);
         break;
       default:
         if (currentLocation.indexOf('#num=') != -1) {
@@ -1672,23 +1679,26 @@ function showThreadFromSystemMessage(number) {
   if (!document.documentElement.lang) {
     window.addEventListener('localized', function waitLocalized() {
       window.removeEventListener('localized', waitLocalized);
-      showAction();
+      showAction(number);
     });
   } else {
     if (!document.mozHidden) {
       // Case of calling from Notification
-      showAction();
+      showAction(number);
       return;
     }
     document.addEventListener('mozvisibilitychange',
       function waitVisibility() {
         document.removeEventListener('mozvisibilitychange', waitVisibility);
-        showAction();
+        showAction(number);
     });
   }
 }
 
 window.navigator.mozSetMessageHandler('activity', function actHandle(activity) {
+  if (!MessageManager.initialized) {
+    MessageManager.init();
+  }
   // XXX This lock is about https://github.com/mozilla-b2g/gaia/issues/5405
   if (MessageManager.lockActivity)
     return;
