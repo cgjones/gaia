@@ -25,6 +25,14 @@
   if (MouseEventShim)
     return;
 
+  // Bail if we're not on running on a platform that sends touch
+  // events.  We don't need the shim code for mouse events.
+  try {
+    document.createEvent('TouchEvent');
+  } catch(e) {
+    return;
+  }
+
   var starttouch;  // The Touch object that we started with
   var target;      // The element the touch is currently over
   var wantsclick;  // Will we be sending a click event after mouseup?
