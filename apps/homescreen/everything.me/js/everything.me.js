@@ -14,36 +14,34 @@ var EverythingME = {
 
       document.querySelector('#loading-overlay .loading-icon').
                                                     classList.remove('frozen');
-      
+
       EverythingME.displayed = true;
-      
+      footerStyle.MozTransform = "translateY(75px)";
+
       page.addEventListener('gridpageshowend', function onpageshowafterload() {
         if (EverythingME.displayed) return;
-        
+
         EverythingME.displayed = true;
-        EvmeFacade.setOpacityBackground(1);
+        footerStyle.MozTransform = "translateY(75px)";
         EvmeFacade.onShow();
       });
 
-      setTimeout(function loading() {
-        EverythingME.load(function success() {
-          var loadingOverlay = document.querySelector('#loading-overlay');
-          loadingOverlay.style.opacity = 0;
-          loadingOverlay.addEventListener('transitionend', function tEnd() {
-            document.querySelector('#evmeContainer').style.opacity = 1;
-            loadingOverlay.removeEventListener('transitionend', tEnd);
-            loadingOverlay.parentNode.removeChild(loadingOverlay);
-          });
-        });
-      }, 0);
+      EverythingME.load(function success() {
+        EvmeFacade.onShow();
+        var loadingOverlay = document.querySelector('#loading-overlay');
+        loadingOverlay.style.opacity = 0;
+        setTimeout(function starting() {
+          document.querySelector('#evmeContainer').style.opacity = 1;
+          loadingOverlay.parentNode.removeChild(loadingOverlay);
+        }, 0);
+      });
     });
 
     page.addEventListener('gridpagehideend', function onpagehide() {
       if (!EverythingME.displayed) return;
-      
+
       EverythingME.displayed = false;
       footerStyle.MozTransform = 'translateY(0)';
-      EvmeFacade.setOpacityBackground(0);
       EvmeFacade.onHide();
       EverythingME.pageHideBySwipe = false;
     });
@@ -52,7 +50,7 @@ var EverythingME = {
       EverythingME.pageHideBySwipe = true;
     });
 
-    page.addEventListener("contextmenu", function longPress(evt) {
+    page.addEventListener('contextmenu', function longPress(evt) {
         evt.stopImmediatePropagation();
     });
 
@@ -61,7 +59,8 @@ var EverythingME = {
         return;
       }
 
-      var captured = EvmeFacade.onHideStart(EverythingME.pageHideBySwipe ? "pageSwipe" : "homeButtonClick");
+      var captured = EvmeFacade.onHideStart(EverythingME.pageHideBySwipe ?
+                                            'pageSwipe' : 'homeButtonClick');
       if (captured) {
         evt.stopImmediatePropagation();
         document.location.hash = '#evme';
@@ -70,17 +69,18 @@ var EverythingME = {
   },
 
   load: function EverythingME_load(success) {
-      
-    var CB = !("ontouchstart" in window),
+
+    var CB = !('ontouchstart' in window),
         js_files = ['js/etmmanager.js',
                     'js/Core.js',
                     'config/config.js',
+                    'config/shortcuts.js',
                     'js/Brain.js',
                     'modules/Apps/Apps.js',
                     'modules/BackgroundImage/BackgroundImage.js',
+                    'modules/Banner/Banner.js',
                     'modules/Dialog/Dialog.js',
                     'modules/Location/Location.js',
-                    'modules/Screens/Screens.js',
                     'modules/Shortcuts/Shortcuts.js',
                     'modules/ShortcutsCustomize/ShortcutsCustomize.js',
                     'modules/Searchbar/Searchbar.js',
@@ -90,11 +90,9 @@ var EverythingME = {
                     'modules/ConnectionMessage/ConnectionMessage.js',
                     'modules/SmartFolder/SmartFolder.js',
                     'js/helpers/Storage.js',
-                    'js/developer/zepto.0.7.js',
                     'js/developer/utils.1.3.js',
                     'js/plugins/Scroll.js',
                     'js/external/iscroll.js',
-                    'js/external/spin.js',
                     'js/developer/log4js2.js',
                     'js/api/apiv2.js',
                     'js/api/DoATAPI.js',
@@ -106,8 +104,8 @@ var EverythingME = {
     var css_files = ['css/common.css',
                      'modules/Apps/Apps.css',
                      'modules/BackgroundImage/BackgroundImage.css',
+                     'modules/Banner/Banner.css',
                      'modules/Dialog/Dialog.css',
-                     'modules/Screens/Screens.css',
                      'modules/Shortcuts/Shortcuts.css',
                      'modules/ShortcutsCustomize/ShortcutsCustomize.css',
                      'modules/Searchbar/Searchbar.css',
@@ -119,39 +117,50 @@ var EverythingME = {
     var head = document.head;
 
     var scriptLoadCount = 0;
+    var cssLoadCount = 0;
+
     function onScriptLoad(event) {
       event.target.removeEventListener('load', onScriptLoad);
-      scriptLoadCount += 1;
-      if (scriptLoadCount == js_files.length) {
+      if (++scriptLoadCount == js_files.length) {
         EverythingME.start(success);
+      } else {
+        loadScript(js_files[scriptLoadCount]);
       }
     }
 
-    for each (var file in js_files) {
-      var script = document.createElement('script');
-      script.type = 'text/javascript';
-      script.src = 'everything.me/' + file + (CB? '?' + Date.now() : '');
-      script.defer = true;
-      script.addEventListener('load', onScriptLoad);
-      head.appendChild(script);
+    function onCSSLoad(event) {
+      event.target.removeEventListener('load', onCSSLoad);
+      if (++cssLoadCount === css_files.length) {
+        loadScript(js_files[scriptLoadCount]);
+      } else {
+        loadCSS(css_files[cssLoadCount]);
+      }
     }
-    for each (var file in css_files) {
+
+    function loadCSS(file) {
       var link = document.createElement('link');
       link.type = 'text/css';
       link.rel = 'stylesheet';
-      link.href= 'everything.me/' + file + (CB? '?' + Date.now() : '');
-      head.appendChild(link);
+      link.href = 'everything.me/' + file + (CB ? '?' + Date.now() : '');
+      link.addEventListener('load', onCSSLoad);
+      setTimeout(function appendCSS() { head.appendChild(link); }, 0);
     }
+
+    function loadScript(file) {
+      var script = document.createElement('script');
+      script.type = 'text/javascript';
+      script.src = 'everything.me/' + file + (CB ? '?' + Date.now() : '');
+      script.defer = true;
+      script.addEventListener('load', onScriptLoad);
+      setTimeout(function appendScript() { head.appendChild(script) }, 0);
+    }
+
+    loadCSS(css_files[cssLoadCount]);
   },
 
   initEvme: function EverythingME_initEvme(success) {
     Evme.init();
     EvmeFacade = Evme;
-
-    if (this.displayed) {
-      EvmeFacade.setOpacityBackground(1);
-    }
-
     success();
   },
 
@@ -168,10 +177,9 @@ var EverythingME = {
 };
 
 var EvmeFacade = {
-  setOpacityBackground: function() {},
-  onHideStart: function() {
+  onHideStart: function onHideStart() {
     return false;
   }
-}
+};
 
 EverythingME.init();

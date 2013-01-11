@@ -1,50 +1,67 @@
-Evme.Location = new function() {
-    var _name = "Location", _this = this,
-        $elLocationName = null, $elButton = null, $elSelectorDialog = null, $locationScreen = null,
-        $elButtonManual = null,
-        dialog = null, dialogActive = false, timeoutLocationRequest = null;
-    var lat = "", lon = "", name = "",
-        lastUserLat = "", lastUserLon = "";
+Evme.Location = new function Evme_Location() {
+    var NAME = 'Location', self = this,
+        lastUpdateTime = 0,
+        requestTimeout = 'FROM CONFIG',
+        refreshInterval = 'FROM CONFIG';
     
-    this.init = function(options) {
+    this.init = function init(options) {
         options || (options = {});
         
-        Evme.EventHandler.trigger(_name, "init");
+        refreshInterval = options.refreshInterval;
+        requestTimeout = options.requestTimeout;
+        
+        Evme.EventHandler.trigger(NAME, 'init');
     };
     
-    this.requestUserLocation = function(onSuccess, onError) {
-        var hadError = false,
-            reportError = function(data) {
+    this.requestUserLocation = function requestUserLocation() {
+        var hadError = false;
+        
+        // this method prevents double error-reporting
+        // in case we get both error and timeout, for example
+        function reportError(data) {
             if (!hadError) {
                 hadError = true;
                 cbError(data);
-                onError && onError(data);
             }
-        };
+        }
         
-        cbLocationRequest();
+        cbRequest();
         
-        navigator.geolocation.getCurrentPosition(function(data){
+        navigator.geolocation.getCurrentPosition(function onLocationSuccess(data){
             if (!data || !data.coords) {
                 reportError(data);
             } else if (!hadError) {
-                onSuccess && onSuccess(data);
-                cbLocationSuccess(data);
+                cbSuccess(data);
             }
-        }, reportError);
+        }, reportError,
+        { "timeout": requestTimeout });
     };
     
-    function cbLocationRequest() {
-        Evme.EventHandler.trigger(_name, "requesting");
+    this.updateIfNeeded = function updateIfNeeded() {
+        if (self.shouldUpdate()) {
+            self.requestUserLocation();
+            return true;
+        }
+        return false;
+    };
+    
+    this.shouldUpdate = function shouldUpdate() {
+        return Date.now() - lastUpdateTime > refreshInterval;
+    };
+    
+    function cbRequest() {
+        Evme.EventHandler.trigger(NAME, "request");
     }
     
-    function cbLocationSuccess(data) {
-        Evme.EventHandler.trigger(_name, "success", {
-            "data": data
+    function cbSuccess(data) {
+        lastUpdateTime = Date.now();
+        
+        Evme.EventHandler.trigger(NAME, "success", {
+            "position": data
         });
     }
     
     function cbError(data) {
-        Evme.EventHandler.trigger(_name, "error", data);
+        Evme.EventHandler.trigger(NAME, "error", data);
     }
 };

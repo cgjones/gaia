@@ -16,17 +16,24 @@ function AppUpdatable(app) {
   this._mgmt = navigator.mozApps.mgmt;
   this.app = app;
 
-  this.name = app.manifest.name;
+  var manifest = app.manifest ? app.manifest : app.updateManifest;
+  this.name = new ManifestHelper(manifest).name;
+
   this.size = app.updateManifest ? app.updateManifest.size : null;
+  this.progress = null;
+
+  UpdateManager.addToUpdatableApps(this);
   app.ondownloadavailable = this.availableCallBack.bind(this);
-  app.ondownloaderror = this.errorCallBack.bind(this);
-  app.ondownloadsuccess = this.successCallBack.bind(this);
-  app.ondownloadapplied = this.appliedCallBack.bind(this);
+  if (app.downloadAvailable) {
+    this.availableCallBack();
+  }
 }
 
 AppUpdatable.prototype.download = function() {
-  this.app.download();
   UpdateManager.addToDownloadsQueue(this);
+  this.progress = 0;
+
+  this.app.download();
 };
 
 AppUpdatable.prototype.cancelDownload = function() {
@@ -36,15 +43,32 @@ AppUpdatable.prototype.cancelDownload = function() {
 
 AppUpdatable.prototype.uninit = function() {
   this.app.ondownloadavailable = null;
+  this.clean();
+};
+
+AppUpdatable.prototype.clean = function() {
   this.app.ondownloaderror = null;
   this.app.ondownloadsuccess = null;
   this.app.ondownloadapplied = null;
+  this.app.onprogress = null;
+
+  this.progress = null;
 };
 
 AppUpdatable.prototype.availableCallBack = function() {
   this.size = this.app.updateManifest ?
     this.app.updateManifest.size : null;
-  UpdateManager.addToUpdatesQueue(this);
+
+  if (this.app.installState === 'installed') {
+    UpdateManager.addToUpdatesQueue(this);
+
+    // we add these callbacks only now to prevent interfering
+    // with other modules (especially the AppInstallManager)
+    this.app.ondownloaderror = this.errorCallBack.bind(this);
+    this.app.ondownloadsuccess = this.successCallBack.bind(this);
+    this.app.ondownloadapplied = this.appliedCallBack.bind(this);
+    this.app.onprogress = this.progressCallBack.bind(this);
+  }
 };
 
 AppUpdatable.prototype.successCallBack = function() {
@@ -60,6 +84,7 @@ AppUpdatable.prototype.successCallBack = function() {
   }
 
   UpdateManager.removeFromDownloadsQueue(this);
+  UpdateManager.removeFromUpdatesQueue(this);
 };
 
 AppUpdatable.prototype.applyUpdate = function() {
@@ -68,30 +93,61 @@ AppUpdatable.prototype.applyUpdate = function() {
 };
 
 AppUpdatable.prototype.appliedCallBack = function() {
-  UpdateManager.removeFromUpdatesQueue(this);
+  this.clean();
 };
 
-AppUpdatable.prototype.errorCallBack = function() {
+AppUpdatable.prototype.errorCallBack = function(e) {
+  var errorName = e.application.downloadError.name;
+  console.info('downloadError event, error code is', errorName);
   UpdateManager.requestErrorBanner();
   UpdateManager.removeFromDownloadsQueue(this);
+  this.progress = null;
 };
 
+AppUpdatable.prototype.progressCallBack = function() {
+  if (this.progress === null) {
+    // this is the first progress
+    UpdateManager.addToDownloadsQueue(this);
+    this.progress = 0;
+  }
 
-/* === System Updates === */
-function SystemUpdatable(downloadSize) {
+  var delta = this.app.progress - this.progress;
+
+  this.progress = this.app.progress;
+  UpdateManager.downloadProgressed(delta);
+};
+
+/*
+ * System Updates
+ * Will be instanciated only once by the UpdateManager
+ *
+ */
+function SystemUpdatable() {
   var _ = navigator.mozL10n.get;
   this.name = _('systemUpdate');
-  this.size = downloadSize;
+  this.size = 0;
+  this.downloading = false;
+  this.paused = false;
   window.addEventListener('mozChromeEvent', this);
 }
 
 SystemUpdatable.prototype.download = function() {
+  if (this.downloading) {
+    return;
+  }
+
+  this.downloading = true;
+  this.paused = false;
   this._dispatchEvent('update-available-result', 'download');
   UpdateManager.addToDownloadsQueue(this);
+  this.progress = 0;
 };
 
 SystemUpdatable.prototype.cancelDownload = function() {
-  // Not implemented yet https://bugzilla.mozilla.org/show_bug.cgi?id=804571
+  this._dispatchEvent('update-download-cancel');
+  UpdateManager.removeFromDownloadsQueue(this);
+  this.downloading = false;
+  this.paused = false;
 };
 
 SystemUpdatable.prototype.uninit = function() {
@@ -110,7 +166,27 @@ SystemUpdatable.prototype.handleEvent = function(evt) {
     case 'update-error':
       this.errorCallBack();
       break;
+    case 'update-download-started':
+      // TODO UpdateManager glue
+      this.paused = false;
+      break;
+    case 'update-download-progress':
+      var delta = detail.progress - this.progress;
+      this.progress = detail.progress;
+
+      UpdateManager.downloadProgressed(delta);
+      break;
+    case 'update-download-stopped':
+      // TODO UpdateManager glue
+      this.paused = detail.paused;
+      if (!this.paused) {
+        UpdateManager.startedUncompressing();
+      }
+      break;
     case 'update-downloaded':
+      this.downloading = false;
+      this.showApplyPrompt();
+      break;
     case 'update-prompt-apply':
       this.showApplyPrompt();
       break;
@@ -120,6 +196,7 @@ SystemUpdatable.prototype.handleEvent = function(evt) {
 SystemUpdatable.prototype.errorCallBack = function() {
   UpdateManager.requestErrorBanner();
   UpdateManager.removeFromDownloadsQueue(this);
+  this.downloading = false;
 };
 
 SystemUpdatable.prototype.showApplyPrompt = function() {
@@ -135,6 +212,7 @@ SystemUpdatable.prototype.showApplyPrompt = function() {
     callback: this.acceptInstall.bind(this)
   };
 
+  UtilityTray.hide();
   CustomDialog.show(_('updateReady'), _('wantToInstall'),
                     cancel, confirm);
 };
@@ -142,6 +220,8 @@ SystemUpdatable.prototype.showApplyPrompt = function() {
 SystemUpdatable.prototype.declineInstall = function() {
   CustomDialog.hide();
   this._dispatchEvent('update-prompt-apply-result', 'wait');
+
+  UpdateManager.removeFromDownloadsQueue(this);
 };
 
 SystemUpdatable.prototype.acceptInstall = function() {

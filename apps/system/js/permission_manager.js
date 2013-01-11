@@ -47,16 +47,11 @@ var PermissionManager = (function() {
     var str = '';
     var _ = navigator.mozL10n.get;
 
-    if (detail.isApp) {
-      // App
-      str = _('permission-ask', {
-        'permission': _(detail.permission), 'app': detail.appName
-      });
-    } else {
-      // Web content
-      str = _('permission-ask', {
-        'permission': _(detail.permission), 'app': detail.origin
-      });
+    var permissionID = 'perm-' + detail.permission.replace(':', '-');
+    if (detail.isApp) { // App
+      str = _(permissionID + '-appRequest', { 'app': detail.appName });
+    } else { // Web content
+      str = _(permissionID + '-webRequest', { 'site': detail.origin });
     }
 
     requestPermission(str, function pm_permYesCB() {

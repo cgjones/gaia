@@ -26,33 +26,11 @@ Calendar.ns('Provider').Abstract = (function() {
     canSync: false,
 
     /**
-     * Can create events for this provider?
+     * Can expand recurring events?
      */
-    canCreateEvent: false,
+    canExpandRecurringEvents: false,
 
     /**
-     * Can edit events for this provider?
-     */
-    canUpdateEvent: false,
-
-    /**
-     * Can delete events from this provider?
-     */
-    canDeleteEvent: false,
-
-    /**
-     * Are there configuration options for this provider?
-     */
-    hasAccountSettings: false,
-
-    /**
-     * Attempt to get account accepts
-     * a single object and callback.
-     * Required options vary based on
-     * .useCredentials / .useUrl
-     *
-     * account:
-     *  - url: (String)
      *  - domain: (String)
      *  - password: (String)
      *  - user: (String)
@@ -79,6 +57,20 @@ Calendar.ns('Provider').Abstract = (function() {
      *
      */
     syncEvents: function(account, calendar, callback) {},
+
+    /**
+     * Ensures recurring events are expanded up to the given date.
+     *
+     * Its very important to correctly return the second callback arg
+     * in the subclasses callback. When requiredExpansion is returned as true a
+     * second call will likely be made to ensureRecurrencesExpanded to verify
+     * there are no more pending events for the date (controller handles this).
+     *
+     * @param {Date} date to expand recurring events to.
+     * @param {Function} callback [err, requiredExpansion].
+     *  first argument is error, second indicates if any expansion was done.
+     */
+    ensureRecurrencesExpanded: function(date, callback) {},
 
     /**
      * Update an event
@@ -109,13 +101,32 @@ Calendar.ns('Provider').Abstract = (function() {
     createEvent: function(event, callback) {},
 
     /**
+     * Returns an object with three keys used to
+     * determine the capabilities of a given calendar.
+     *
+     * - canCreate (Boolean)
+     * - canUpdate (Boolean)
+     * - canDelete (Boolean)
+     *
+     * @param {Object} calendar full calendar details.
+     */
+    calendarCapabilities: function(calendar) {
+      return {
+        canCreateEvent: true,
+        canUpdateEvent: true,
+        canDeleteEvent: true
+      };
+    },
+
+    /**
      * Returns the capabilities of a single event.
      */
     eventCapabilities: function() {
+      var caps = this.calendarCapabilities();
       return {
-        canUpdate: this.canUpdateEvent,
-        canCreate: this.canUpdateEvent,
-        canDelete: this.canUpdateEvent
+        canCreate: caps.canCreateEvent,
+        canUpdate: caps.canUpdateEvent,
+        canDelete: caps.canDeleteEvent
       };
     }
 

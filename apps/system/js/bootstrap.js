@@ -4,22 +4,31 @@
 'use strict';
 
 window.addEventListener('load', function startup() {
-  function firstAppManager(homescreenApp) {
-    // TODO Include algorith for handling which app is the first running app
-    // By now will be homescreen until merging #5883
-    homescreenApp.launch();
+  function safelyLaunchFTU() {
+    WindowManager.retrieveHomescreen(WindowManager.retrieveFTU);
   }
+
   if (Applications.ready) {
-    WindowManager.retrieveHomescreen(firstAppManager);
+    safelyLaunchFTU();
   } else {
     window.addEventListener('applicationready', function appListReady(event) {
       window.removeEventListener('applicationready', appListReady);
-      WindowManager.retrieveHomescreen(firstAppManager);
+      safelyLaunchFTU();
     });
   }
 
+  window.addEventListener('ftudone', function doneWithFTU() {
+    window.removeEventListener('ftudone', doneWithFTU);
+
+    var lock = window.navigator.mozSettings.createLock();
+    lock.set({
+      'gaia.system.checkForUpdates': true
+    });
+  });
+
   SourceView.init();
   Shortcuts.init();
+  ScreenManager.turnScreenOn();
 
   // We need to be sure to get the focus in order to wake up the screen
   // if the phone goes to sleep before any user interaction.

@@ -15,8 +15,8 @@ function ComposeCard(domNode, mode, args) {
 
   domNode.getElementsByClassName('cmp-back-btn')[0]
     .addEventListener('click', this.onBack.bind(this), false);
-  domNode.getElementsByClassName('cmp-send-btn')[0]
-    .addEventListener('click', this.onSend.bind(this), false);
+  this.sendButton = domNode.getElementsByClassName('cmp-send-btn')[0];
+  this.sendButton.addEventListener('click', this.onSend.bind(this), false);
 
   this.toNode = domNode.getElementsByClassName('cmp-to-text')[0];
   this.ccNode = domNode.getElementsByClassName('cmp-cc-text')[0];
@@ -29,6 +29,9 @@ function ComposeCard(domNode, mode, args) {
                                      this.onTextBodyDelta.bind(this));
   this.htmlBodyContainer = domNode.getElementsByClassName('cmp-body-html')[0];
   this.htmlIframeNode = null;
+
+  this.scrollContainer =
+    domNode.getElementsByClassName('scrollregion-below-header')[0];
 
   // Add input event listener for handling the bubble creation/deletion.
   this.toNode.addEventListener('keydown', this.onAddressKeydown.bind(this));
@@ -43,11 +46,17 @@ function ComposeCard(domNode, mode, args) {
     addBtns[i].addEventListener('click', this.onContactAdd.bind(this));
   }
   // Add input focus:
-  var containerList = domNode.getElementsByClassName('cmp-bubble-container');
+  var containerList = domNode.getElementsByClassName('cmp-combo');
   for (var i = 0; i < containerList.length; i++) {
     containerList[i].addEventListener('click',
       this.onContainerClick.bind(this));
   }
+
+  // Add subject focus for larger hitbox
+  var subjectContainer = domNode.querySelector('.cmp-subject');
+  subjectContainer.addEventListener('click', function subjectFocus() {
+    subjectContainer.querySelector('input').focus();
+  });
 
   // Add attachments
   var attachmentsContainer =
@@ -106,6 +115,9 @@ ComposeCard.prototype = {
     expandAddresses(this.ccNode, this.composer.cc);
     expandAddresses(this.bccNode, this.composer.bcc);
 
+    if (this.isEmptyAddress()) {
+      this.sendButton.setAttribute('aria-disabled', 'true');
+    }
     this.subjectNode.value = this.composer.subject;
     this.textBodyNode.value = this.composer.body.text;
     // force the textarea to be sized.
@@ -116,10 +128,12 @@ ComposeCard.prototype = {
       // it gets to live in an iframe.  Its read-only and the user needs to be
       // able to see what they are sending, so reusing the viewing functionality
       // is desirable.
-      this.htmlIframeNode = createAndInsertIframeForContent(
-        this.composer.body.html, this.htmlBodyContainer, /* append */ null,
+      var iframeShims = createAndInsertIframeForContent(
+        this.composer.body.html, this.scrollContainer,
+        this.htmlBodyContainer, /* append */ null,
         'noninteractive',
         /* no click handler because no navigation desired */ null);
+      this.htmlIframeNode = iframeShims.iframe;
     }
   },
 
@@ -184,6 +198,9 @@ ComposeCard.prototype = {
    * deleteBubble: Delete the bubble from the parent container.
    */
   deleteBubble: function(node) {
+    if (!node) {
+      return;
+    }
     var dot = node.nextSibling;
     var container = node.parentNode;
     if (dot.classList.contains('cmp-dot-text')) {
@@ -192,6 +209,22 @@ ComposeCard.prototype = {
     if (node.classList.contains('cmp-peep-bubble')) {
       container.removeChild(node);
     }
+    if (this.isEmptyAddress()) {
+      this.sendButton.setAttribute('aria-disabled', 'true');
+    }
+  },
+
+  /**
+   * Check if envelope-bar is empty or contains any string or bubble.
+   */
+  isEmptyAddress: function() {
+    var inputSet = this.toNode.value + this.ccNode.value + this.bccNode.value;
+    var addrBar = this.domNode.getElementsByClassName('cmp-envelope-bar')[0];
+    var bubbles = addrBar.querySelectorAll('.cmp-peep-bubble');
+    if (!inputSet.replace(/\s/g, '') && bubbles.length == 0) {
+      return true;
+    }
+    return false;
   },
 
   /**
@@ -205,6 +238,9 @@ ComposeCard.prototype = {
       //delete bubble
       var previousBubble = node.previousSibling.previousSibling;
       this.deleteBubble(previousBubble);
+      if (this.isEmptyAddress()) {
+        this.sendButton.setAttribute('aria-disabled', 'true');
+      }
     }
   },
 
@@ -214,13 +250,42 @@ ComposeCard.prototype = {
   onAddressInput: function(evt) {
     var node = evt.target;
     var container = evt.target.parentNode;
-    if (node.value.slice(-1) == ',') {
+    if (this.isEmptyAddress()) {
+      this.sendButton.setAttribute('aria-disabled', 'true');
+      return;
+    }
+    this.sendButton.setAttribute('aria-disabled', 'false');
+    var makeBubble = false;
+    // When do we want to tie off this e-mail address, put it into a bubble
+    // and clear the input box so the user can type another address?
+    switch (node.value.slice(-1)) {
+      // If they hit space and we believe they've already typed an email
+      // address!  (Space is okay in a display name or to delimit a display
+      // name from the e-mail address)
+      //
+      // We use the presence of an '@' character as indicating that the e-mail
+      // address
+      case ' ':
+        makeBubble = node.value.indexOf('@') !== -1;
+        break;
+      // We started out supporting comma, but now it's not on our keyboard at
+      // all in type=email mode!  We aren't terribly concerned about it not
+      // being usable in display names, although we really should check for
+      // quoting...
+      case ',':
+      // Semicolon is on the keyboard, and we also don't care about it not
+      // being usable in display names.
+      case ';':
+        makeBubble = true;
+        break;
+    }
+    if (makeBubble) {
       // TODO: Need to match the email with contact name.
       node.style.width = '0.5rem';
       // TODO: We will apply email address parser for showing bubble properly.
       //       We simply set name as string that splited from address
       //       before parser is ready.
-      this.insertBubble(node, null, node.value.split(',')[0]);
+      this.insertBubble(node, null, node.value.slice(0, -1));
       node.value = '';
     }
     // XXX: Workaround to get the length of the string. Here we create a dummy
@@ -384,16 +449,6 @@ ComposeCard.prototype = {
     var self = this;
     contactBtn.classList.remove('show');
     try {
-      var reopenSelf = function reopenSelf(obj) {
-        navigator.mozApps.getSelf().onsuccess = function getSelfCB(evt) {
-          var app = evt.target.result;
-          app.launch();
-          if (obj.email) {
-            var emt = contactBtn.parentElement.querySelector('.cmp-addr-text');
-            self.insertBubble(emt, obj.name, obj.email);
-          }
-        };
-      };
       var activity = new MozActivity({
         name: 'pick',
         data: {
@@ -401,12 +456,12 @@ ComposeCard.prototype = {
         }
       });
       activity.onsuccess = function success() {
-        reopenSelf(this.result);
+        if (this.result.email) {
+          var emt = contactBtn.parentElement.querySelector('.cmp-addr-text');
+          self.insertBubble(emt, this.result.name, this.result.email);
+          self.sendButton.setAttribute('aria-disabled', 'false');
+        }
       }
-      activity.onerror = function error() {
-        reopenSelf();
-      }
-
     } catch (e) {
       console.log('WebActivities unavailable? : ' + e);
     }

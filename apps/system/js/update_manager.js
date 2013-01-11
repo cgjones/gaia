@@ -14,7 +14,13 @@
 var UpdateManager = {
   _mgmt: null,
   _downloading: false,
+  _uncompressing: false,
+  _downloadedBytes: 0,
   _errorTimeout: null,
+  _wifiLock: null,
+  _systemUpdateDisplayed: false,
+  _conn: null,
+  _edgeTypes: ['edge', 'is95a', 'is95b', 'gprs'],
   NOTIFICATION_BUFFERING_TIMEOUT: 30 * 1000,
   TOASTER_TIMEOUT: 1200,
 
@@ -29,6 +35,7 @@ var UpdateManager = {
   downloadDialogList: null,
 
   updatableApps: [],
+  systemUpdatable: null,
   updatesQueue: [],
   downloadsQueue: [],
 
@@ -40,13 +47,11 @@ var UpdateManager = {
     this._mgmt.getAll().onsuccess = (function gotAll(evt) {
       var apps = evt.target.result;
       apps.forEach(function appIterator(app) {
-        var updatableApp = new AppUpdatable(app);
-        this.addToUpdatableApps(updatableApp);
-        if (app.downloadAvailable) {
-          this.addToUpdatesQueue(updatableApp);
-        }
-      }, this);
+        new AppUpdatable(app);
+      });
     }).bind(this);
+
+    this.systemUpdatable = new SystemUpdatable();
 
     this.container = document.getElementById('update-manager-container');
     this.message = this.container.querySelector('.message');
@@ -62,7 +67,8 @@ var UpdateManager = {
 
     this.container.onclick = this.containerClicked.bind(this);
     this.laterButton.onclick = this.cancelPrompt.bind(this);
-    this.downloadButton.onclick = this.startAllDownloads.bind(this);
+    this.downloadButton.onclick = this.startDownloads.bind(this);
+    this.downloadDialogList.onchange = this.updateDownloadButton.bind(this);
 
     window.addEventListener('mozChromeEvent', this);
     window.addEventListener('applicationinstall', this);
@@ -70,17 +76,44 @@ var UpdateManager = {
 
     SettingsListener.observe('gaia.system.checkForUpdates', false,
                              this.checkForUpdates.bind(this));
+
+    // We maintain the the edge and nowifi data attributes to show
+    // a warning on the download dialog
+    window.addEventListener('wifi-statuschange', this);
+    this.updateWifiStatus();
+
+    this._conn = window.navigator.mozMobileConnection;
+    if (this._conn) {
+      this._conn.addEventListener('datachange', this);
+      this.updateEdgeStatus();
+    }
   },
 
-  startAllDownloads: function um_startAllDownloads(evt) {
+  startDownloads: function um_startDownloads(evt) {
     evt.preventDefault();
 
     this.downloadDialog.classList.remove('visible');
     UtilityTray.show();
 
-    this.updatesQueue.forEach(function(updatableApp) {
-      updatableApp.download();
+    var checkValues = {};
+    var dialog = this.downloadDialogList;
+    var checkboxes = dialog.querySelectorAll('input[type="checkbox"]');
+    for (var i = 0; i < checkboxes.length; i++) {
+      var checkbox = checkboxes[i];
+      checkValues[checkbox.dataset.position] = checkbox.checked;
+    }
+
+    this.updatesQueue.forEach(function(updatable, index) {
+      // The user opted out of the download
+      if (updatable.app && !checkValues[index]) {
+        return;
+      }
+
+      updatable.download();
     });
+
+    this._downloadedBytes = 0;
+    this.render();
   },
 
   cancelAllDownloads: function um_cancelAllDownloads() {
@@ -129,7 +162,8 @@ var UpdateManager = {
   showDownloadPrompt: function um_showDownloadPrompt() {
     var _ = navigator.mozL10n.get;
 
-    this.downloadDialogTitle.textContent = _('updates', {
+    this._systemUpdateDisplayed = false;
+    this.downloadDialogTitle.textContent = _('numberOfUpdates', {
                                               n: this.updatesQueue.length
                                            });
 
@@ -150,14 +184,39 @@ var UpdateManager = {
     });
 
     this.downloadDialogList.innerHTML = '';
-    this.updatesQueue.forEach(function updatableIterator(updatable) {
+    this.updatesQueue.forEach(function updatableIterator(updatable, index) {
       var listItem = document.createElement('li');
-      listItem.textContent = updatable.name;
+
+      // The user can choose not to update an app
+      var checkContainer = document.createElement('label');
+      if (updatable instanceof SystemUpdatable) {
+        checkContainer.textContent = _('required');
+        checkContainer.classList.add('required');
+        this._systemUpdateDisplayed = true;
+      } else {
+        var checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.dataset.position = index;
+        checkbox.checked = true;
+
+        var span = document.createElement('span');
+
+        checkContainer.appendChild(checkbox);
+        checkContainer.appendChild(span);
+      }
+      listItem.appendChild(checkContainer);
+
+      var name = document.createElement('div');
+      name.classList.add('name');
+      name.textContent = updatable.name;
+      listItem.appendChild(name);
 
       if (updatable.size) {
-        var sizeItem = document.createElement('span');
+        var sizeItem = document.createElement('div');
         sizeItem.textContent = this._humanizeSize(updatable.size);
         listItem.appendChild(sizeItem);
+      } else {
+        listItem.classList.add('nosize');
       }
 
       this.downloadDialogList.appendChild(listItem);
@@ -166,27 +225,69 @@ var UpdateManager = {
     this.downloadDialog.classList.add('visible');
   },
 
+  updateDownloadButton: function() {
+    if (this._systemUpdateDisplayed) {
+      this.downloadButton.disabled = false;
+      return;
+    }
+
+    var disabled = true;
+
+    var dialog = this.downloadDialogList;
+    var checkboxes = dialog.querySelectorAll('input[type="checkbox"]');
+    for (var i = 0; i < checkboxes.length; i++) {
+      if (checkboxes[i].checked) {
+        disabled = false;
+        break;
+      }
+    }
+
+    this.downloadButton.disabled = disabled;
+  },
+
   cancelPrompt: function um_cancelPrompt() {
     CustomDialog.hide();
-      this.downloadDialog.classList.remove('visible');
+    this.downloadDialog.classList.remove('visible');
+  },
+
+  downloadProgressed: function um_downloadProgress(bytes) {
+    if (bytes > 0) {
+      this._downloadedBytes += bytes;
+      this.render();
+    }
+  },
+
+  startedUncompressing: function um_startedUncompressing() {
+    this._uncompressing = true;
+    this.render();
   },
 
   render: function um_render() {
     var _ = navigator.mozL10n.get;
 
-    if (this._downloading) {
-      this.container.classList.add('downloading');
-      this.message.innerHTML = _('downloadingMessage');
-    } else {
-      this.message.innerHTML = _('updatesAvailableMessage', {
-                                 n: this.updatesQueue.length
-                               });
-      this.container.classList.remove('downloading');
-    }
-
-    this.toasterMessage.innerHTML = _('updatesAvailableMessage', {
+    this.toasterMessage.innerHTML = _('updateAvailableInfo', {
                                       n: this.updatesQueue.length
                                     });
+
+    var message = '';
+    if (this._downloading) {
+      if (this._uncompressing && this.downloadsQueue.length === 1) {
+        message = _('uncompressingMessage');
+      } else {
+        var humanProgress = this._humanizeSize(this._downloadedBytes);
+        message = _('downloadingUpdateMessage', {
+                    progress: humanProgress
+                  });
+      }
+    } else {
+      message = _('updateAvailableInfo', {
+                 n: this.updatesQueue.length
+                });
+    }
+
+    this.message.innerHTML = message;
+    var css = this.container.classList;
+    this._downloading ? css.add('downloading') : css.remove('downloading');
   },
 
   addToUpdatableApps: function um_addtoUpdatableapps(updatableApp) {
@@ -199,16 +300,21 @@ var UpdateManager = {
       return;
 
     var removedApp = this.updatableApps[removeIndex];
-    if (removedApp.app.downloadAvailable) {
-      this.removeFromUpdatesQueue(removedApp);
-    }
+    this.removeFromUpdatesQueue(removedApp);
+
     removedApp.uninit();
     this.updatableApps.splice(removeIndex, 1);
   },
 
   addToUpdatesQueue: function um_addToUpdatesQueue(updatable) {
-    if (this._downloading)
+    if (this._downloading) {
       return;
+    }
+
+    if (updatable.app &&
+        updatable.app.installState !== 'installed') {
+      return;
+    }
 
     if (updatable.app &&
         this.updatableApps.indexOf(updatable) === -1) {
@@ -225,24 +331,25 @@ var UpdateManager = {
     this.updatesQueue.push(updatable);
 
     if (this.updatesQueue.length === 1) {
-      var self = this;
-      setTimeout(function waitForMore() {
-        if (self.updatesQueue.length) {
-          self.container.classList.add('displayed');
-          self.toaster.classList.add('displayed');
-
-          setTimeout(function waitToHide() {
-            self.toaster.classList.remove('displayed');
-          }, self.TOASTER_TIMEOUT);
-
-          var initialCount = StatusBar.notificationsCount;
-          StatusBar.updateNotification(initialCount + 1);
-          StatusBar.updateNotificationUnread(true);
-        }
-      }, this.NOTIFICATION_BUFFERING_TIMEOUT);
+      setTimeout(this.displayNotificationAndToaster.bind(this),
+          this.NOTIFICATION_BUFFERING_TIMEOUT);
     }
 
     this.render();
+  },
+
+  displayNotificationAndToaster: function um_displayNotificationAndToaster() {
+    if (this.updatesQueue.length && !this._downloading) {
+      this.container.classList.add('displayed');
+      this.toaster.classList.add('displayed');
+
+      var self = this;
+      setTimeout(function waitToHide() {
+        self.toaster.classList.remove('displayed');
+      }, this.TOASTER_TIMEOUT);
+
+      NotificationScreen.incExternalNotifications();
+    }
   },
 
   removeFromUpdatesQueue: function um_removeFromUpdatesQueue(updatable) {
@@ -254,10 +361,7 @@ var UpdateManager = {
     if (this.updatesQueue.length === 0) {
       this.container.classList.remove('displayed');
 
-      var initialCount = StatusBar.notificationsCount;
-      if (initialCount >= 1) {
-        StatusBar.updateNotification(initialCount - 1);
-      }
+      NotificationScreen.decExternalNotifications();
     }
 
     this.render();
@@ -280,6 +384,10 @@ var UpdateManager = {
 
     if (this.downloadsQueue.length === 1) {
       this._downloading = true;
+      StatusBar.incSystemDownloads();
+      this._wifiLock = navigator.requestWakeLock('wifi');
+
+      this.container.classList.add('displayed');
       this.render();
     }
   },
@@ -293,30 +401,44 @@ var UpdateManager = {
 
     if (this.downloadsQueue.length === 0) {
       this._downloading = false;
+      StatusBar.decSystemDownloads();
+      this._downloadedBytes = 0;
       this.checkStatuses();
+
+      if (this._wifiLock) {
+        try {
+          this._wifiLock.unlock();
+        } catch (e) {
+          // this can happen if the lock is already unlocked
+          console.error('error during unlock', e);
+        }
+
+        this._wifiLock = null;
+      }
+
       this.render();
     }
   },
 
   checkStatuses: function um_checkStatuses() {
     this.updatableApps.forEach(function(updatableApp) {
-      if (updatableApp.app.downloadAvailable) {
+      var app = updatableApp.app;
+      if (app.downloadAvailable) {
         this.addToUpdatesQueue(updatableApp);
       }
     }, this);
   },
 
   oninstall: function um_oninstall(evt) {
-    var updatableApp = new AppUpdatable(evt.application);
-    this.addToUpdatableApps(updatableApp);
-    if (evt.application.downloadAvailable) {
-      this.addToUpdatesQueue(updatableApp);
-    }
+    var app = evt.application;
+    var updatableApp = new AppUpdatable(app);
   },
 
   onuninstall: function um_onuninstall(evt) {
     this.updatableApps.some(function appIterator(updatableApp, index) {
-      if (updatableApp.app === evt.application) {
+      // The application object we get from the event
+      // has only origin and manifestURL properties
+      if (updatableApp.app.manifestURL === evt.application.manifestURL) {
         this.removeFromAll(updatableApp);
         return true;
       }
@@ -328,28 +450,48 @@ var UpdateManager = {
     if (!evt.type)
       return;
 
-    if (evt.type === 'applicationinstall') {
-      this.oninstall(evt.detail);
-      return;
-    }
-
-    if (evt.type === 'applicationuninstall') {
-      this.onuninstall(evt.detail);
-      return;
+    switch (evt.type) {
+      case 'applicationinstall':
+        this.oninstall(evt.detail);
+        break;
+      case 'applicationuninstall':
+        this.onuninstall(evt.detail);
+        break;
+      case 'datachange':
+        this.updateEdgeStatus();
+        break;
+      case 'wifi-statuschange':
+        this.updateWifiStatus();
+        break;
     }
 
     if (evt.type !== 'mozChromeEvent')
       return;
 
     var detail = evt.detail;
-    if (!detail.type)
+
+    if (detail.type && detail.type === 'update-available') {
+      this.systemUpdatable.size = detail.size;
+      this.addToUpdatesQueue(this.systemUpdatable);
+    }
+  },
+
+  updateEdgeStatus: function su_updateEdgeStatus() {
+    if (!this._conn)
       return;
 
-    switch (detail.type) {
-      case 'update-available':
-        this.addToUpdatesQueue(new SystemUpdatable(detail.size));
-        break;
-    }
+    var data = this._conn.data;
+    this.downloadDialog.dataset.edge =
+      (this._edgeTypes.indexOf(data.type) !== -1);
+  },
+
+  updateWifiStatus: function su_updateWifiStatus() {
+    var wifiManager = window.navigator.mozWifiManager;
+    if (!wifiManager)
+      return;
+
+    this.downloadDialog.dataset.nowifi =
+      (wifiManager.connection.status != 'connected');
   },
 
   checkForUpdates: function su_checkForUpdates(shouldCheck) {
@@ -358,6 +500,16 @@ var UpdateManager = {
     }
 
     this._dispatchEvent('force-update-check');
+
+    var settings = navigator.mozSettings;
+    if (!settings) {
+      return;
+    }
+
+    var lock = settings.createLock();
+    lock.set({
+      'gaia.system.checkForUpdates': false
+    });
   },
 
   _dispatchEvent: function um_dispatchEvent(type, result) {
@@ -375,10 +527,18 @@ var UpdateManager = {
   _humanizeSize: function um_humanizeSize(bytes) {
     var _ = navigator.mozL10n.get;
     var units = ['bytes', 'kB', 'MB', 'GB', 'TB', 'PB'];
+
+    if (!bytes)
+      return '0.00 ' + _(units[0]);
+
     var e = Math.floor(Math.log(bytes) / Math.log(1024));
     return (bytes / Math.pow(1024, Math.floor(e))).toFixed(2) + ' ' +
       _(units[e]);
   }
 };
 
-UpdateManager.init();
+window.addEventListener('localized', function startup(evt) {
+  window.removeEventListener('localized', startup);
+
+  UpdateManager.init();
+});

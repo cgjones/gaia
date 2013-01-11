@@ -31,16 +31,13 @@
     #evmeContainer #shortcuts-loading.visible {
         display: block;
     }
-    
+
     #evmeContainer #shortcuts #shortcuts-list {
         position: absolute;
         top: 0;
         right: 0;
         bottom: 0;
         left: 0;
-    }
-    #evmeContainer.ffos-menu-visible #shortcuts #shortcuts-list {
-        bottom: 75px;
     }
     #evmeContainer #shortcuts #shortcuts-list ul {
         padding-bottom: 50px;
@@ -56,6 +53,7 @@
         vertical-align: top;
         z-index: 10;
         padding: 5px 0 8px 0;
+        width: 25%;
         height: 80px;
         text-align: center;
         cursor: pointer;
@@ -63,13 +61,13 @@
         #evmeContainer .shortcut .remove {
             position: absolute;
             top: -5px;
-            left: 0;
+            left: .5rem;
             right: 0;
             height: 25px;
             z-index: 100;
             display: none;
             cursor: pointer;
-            background: transparent url('/everything.me/images/shared/close.png') 50% 0 no-repeat;
+            background: transparent url('/resources/images/delete.png') no-repeat left top;
         }
     #evmeContainer .shortcut.disabled {
         opacity: 0;
@@ -125,7 +123,6 @@
             display: block;
             font-size: 12px;
             margin-top: 12px;
-            text-transform: capitalize;
             z-index: 50;
             color: #fff;
             font-weight: 600;
@@ -142,11 +139,7 @@
             -moz-transform: scale(.7) !important;
             transform: scale(.7) !important;
         }
-        
-    #evmeContainer #category-page-name {
-        text-transform: capitalize;
-    }
-    
+
 #evmeContainer #category-page-screen {
     position: absolute;
     top: -80px;
@@ -179,7 +172,7 @@
         -moz-transform: translate(0, 0) !important;
         transform: translate(0, 0) !important;
     }
-    
+
 #evmeContainer #page-category {
     font-size: 15px;
     opacity: 0;
@@ -196,7 +189,7 @@
     #evmeContainer #page-category .category-scroll {
         padding: 0 20px;
     }
-    
+
 #evmeContainer .pages > #page-category.active {
     opacity: 1;
     pointer-events: inherit;
@@ -252,7 +245,7 @@
     #evmeContainer #page-category.one-option .category-item .arrow-next {
         bottom: 31px;
     }
-    
+
     #evmeContainer #page-category .category-item label {
         display: block;
         margin-bottom: 4px;
@@ -280,7 +273,7 @@
         -moz-box-sizing: border-box;
         margin: 0;
     }
-    
+
 #evmeContainer #close-category {
     background-position: 0 -220px;
     position: absolute;

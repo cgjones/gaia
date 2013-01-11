@@ -144,33 +144,6 @@ suite('views/settings', function() {
       assert.equal(children.length, 0);
     });
 
-    suite('sync (start|complete)', function() {
-      var classList;
-
-      setup(function() {
-        classList = subject.syncProgressTarget.classList;
-        assert.ok(
-          !classList.contains(subject.syncClass),
-          'not active initially'
-        );
-
-        app.syncController.emit('sync start');
-      });
-
-      teardown(function() {
-        classList.remove(subject.syncClass);
-      });
-
-      test('start', function() {
-        assert.ok(classList.contains(subject.syncClass), 'is active');
-      });
-
-      test('complete', function() {
-        app.syncController.emit('sync complete');
-        assert.ok(!classList.contains(subject.syncClass), 'remove active');
-      });
-    });
-
   });
 
   test('sync', function() {
@@ -178,9 +151,9 @@ suite('views/settings', function() {
     var calledWith;
     var el = subject.syncButton;
 
-    controller.sync = function() {
+    controller.all = function() {
       calledWith = arguments;
-    }
+    };
 
     triggerEvent(subject.syncButton, 'click');
     assert.ok(calledWith);
@@ -283,7 +256,7 @@ suite('views/settings', function() {
       calledWith = null;
       app.resetState = function() {
         calledWith = arguments;
-      }
+      };
     });
 
     test('#onactive', function() {

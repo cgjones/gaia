@@ -22,7 +22,11 @@ SettingsListener.observe('phone.ring.keypad', true, function(value) {
 });
 
 var TonePlayer = {
-  _sampleRate: 8000,
+  _frequencies: null, // from gTonesFrequencies
+  _sampleRate: 8000, // number of frames/sec
+  _position: null, // number of frames generated
+  _intervalID: null, // id for the audio loop's setInterval
+  _stopping: false,
 
   init: function tp_init() {
     document.addEventListener('mozvisibilitychange',
@@ -35,28 +39,85 @@ var TonePlayer = {
      return;
 
    this._audio = new Audio();
-   this._audio.mozSetup(2, this._sampleRate);
+   this._audio.mozAudioChannelType = 'ringer';
   },
 
-  generateFrames: function tp_generateFrames(soundData, freqRow, freqCol) {
-    var currentSoundSample = 0;
-    var kr = 2 * Math.PI * freqRow / this._sampleRate;
-    var kc = 2 * Math.PI * freqCol / this._sampleRate;
-    for (var i = 0; i < soundData.length; i += 2) {
-      var smoother = 0.5 + (Math.sin((i * Math.PI) / soundData.length)) / 2;
+  // Generating audio frames for the 2 given frequencies
+  generateFrames: function tp_generateFrames(soundData, shortPress) {
+    var position = this._position;
 
-      soundData[i] = Math.sin(kr * currentSoundSample) * smoother;
-      soundData[i + 1] = Math.sin(kc * currentSoundSample) * smoother;
+    var kr = 2 * Math.PI * this._frequencies[0] / this._sampleRate;
+    var kc = 2 * Math.PI * this._frequencies[1] / this._sampleRate;
 
-      currentSoundSample++;
+    for (var i = 0; i < soundData.length; i++) {
+      // Poor man's ADSR
+      // Only short press have a release phase because we don't know
+      // when the long press will end
+      var factor;
+      if (position < 200) {
+        // Attack
+        factor = position / 200;
+      } else if (position > 200 && position < 400) {
+        // Decay
+        factor = 1 - ((position - 200) / 200) * 0.3; // Decay factor
+      } else if (shortPress && position > 800) {
+        // Release, short press only
+        factor = 0.7 - ((position - 800) / 400 * 0.7);
+      } else {
+        // Sustain
+        factor = 0.7;
+      }
+
+      soundData[i] = (Math.sin(kr * position) +
+                      Math.sin(kc * position)) / 2 * factor;
+      position++;
     }
+
+    this._position += soundData.length;
   },
 
-  play: function tp_play(frequencies) {
-    var soundDataSize = this._sampleRate / 4;
-    var soundData = new Float32Array(soundDataSize);
-    this.generateFrames(soundData, frequencies[0], frequencies[1]);
-    this._audio.mozWriteAudio(soundData);
+  start: function tp_start(frequencies, shortPress) {
+    this._frequencies = frequencies;
+    this._position = 0;
+    this._stopping = false;
+
+    // Already playing
+    if (this._intervalID) {
+      return;
+    }
+
+    this._audio.mozSetup(1, this._sampleRate);
+    this._audio.volume = 1;
+
+    // Writing 150ms of sound (duration for a short press)
+    var initialSoundData = new Float32Array(1200);
+    this.generateFrames(initialSoundData, shortPress);
+    this._audio.mozWriteAudio(initialSoundData);
+
+    if (shortPress)
+      return;
+
+    // Long press support
+    // Continuing playing until .stop() is called
+    this._intervalID = setInterval((function audioLoop() {
+      if (this._stopping)
+        return;
+
+      var soundData = new Float32Array(1200);
+      this.generateFrames(soundData);
+      if (this._audio != null)
+        this._audio.mozWriteAudio(soundData);
+    }).bind(this), 60); // Avoiding under-run issues by keeping this low
+  },
+
+  stop: function tp_stop() {
+    this._stopping = true;
+
+    clearInterval(this._intervalID);
+    this._intervalID = null;
+
+    if (this._audio != null)
+      this._audio.src = '';
   },
 
   // If the app loses focus, close the audio stream. This works around an
@@ -69,14 +130,21 @@ var TonePlayer = {
     } else {
       // Reset the audio stream. This ensures that the stream is shutdown
       // *immediately*.
-      this._audio.src = '';
+      this.stop();
+      // Just in case stop any dtmf tone
+      if (navigator.mozTelephony) {
+        navigator.mozTelephony.stopTone();
+      }
       delete this._audio;
     }
   }
-
 };
 
 var KeypadManager = {
+
+  _MAX_FONT_SIZE_DIAL_PAD: 18,
+  _MAX_FONT_SIZE_ON_CALL: 16,
+
   _phoneNumber: '',
   _onCall: false,
 
@@ -159,7 +227,11 @@ var KeypadManager = {
     var defaultFontSize = window.getComputedStyle(document.body, null)
                                 .getPropertyValue('font-size');
     this.minFontSize = parseInt(parseInt(defaultFontSize) * 10 * 0.226);
-    this.maxFontSize = parseInt(parseInt(defaultFontSize) * 16 * 0.226);
+    this.maxFontSize = this._onCall ?
+      parseInt(parseInt(defaultFontSize) * this._MAX_FONT_SIZE_ON_CALL
+        * 0.226) :
+      parseInt(parseInt(defaultFontSize) * this._MAX_FONT_SIZE_DIAL_PAD
+        * 0.226);
 
     this.phoneNumberView.value = '';
     this._phoneNumber = '';
@@ -167,26 +239,27 @@ var KeypadManager = {
     var keyHandler = this.keyHandler.bind(this);
     this.keypad.addEventListener('mousedown', keyHandler, true);
     this.keypad.addEventListener('mouseup', keyHandler, true);
+    this.keypad.addEventListener('mouseleave', keyHandler, true);
     this.deleteButton.addEventListener('mousedown', keyHandler);
     this.deleteButton.addEventListener('mouseup', keyHandler);
 
     // The keypad add contact bar is only included in the normal version of
     // the keypad.
     if (this.callBarAddContact) {
-      this.callBarAddContact.addEventListener('mouseup',
+      this.callBarAddContact.addEventListener('click',
                                               this.addContact.bind(this));
     }
 
-    // The keypad add contact bar is only included in the normal version and
+    // The keypad call bar is only included in the normal version and
     // the emergency call version of the keypad.
     if (this.callBarCallAction) {
-      this.callBarCallAction.addEventListener('mouseup',
+      this.callBarCallAction.addEventListener('click',
                                               this.makeCall.bind(this));
     }
 
     // The keypad cancel bar is only the emergency call version of the keypad.
     if (this.callBarCancelAction) {
-      this.callBarCancelAction.addEventListener('mouseup', function() {
+      this.callBarCancelAction.addEventListener('click', function() {
         window.parent.LockScreen.switchPanel();
       });
     }
@@ -194,12 +267,12 @@ var KeypadManager = {
     // The keypad hide bar is only included in the on call version of the
     // keypad.
     if (this.hideBarHideAction) {
-      this.hideBarHideAction.addEventListener('mouseup',
+      this.hideBarHideAction.addEventListener('click',
                                               this.callbarBackAction);
     }
 
     if (this.hideBarHangUpAction) {
-      this.hideBarHangUpAction.addEventListener('mouseup',
+      this.hideBarHangUpAction.addEventListener('click',
                                                 this.hangUpCallFromKeypad);
     }
 
@@ -276,21 +349,6 @@ var KeypadManager = {
           }
         }
       });
-
-      var reopenApp = function reopenApp() {
-        navigator.mozApps.getSelf().onsuccess = function getSelfCB(evt) {
-          var app = evt.target.result;
-          app.launch('dialer');
-        };
-      }
-
-      activity.onsuccess = function() {
-        reopenApp();
-      };
-      activity.onerror = function() {
-        reopenApp();
-      };
-
     } catch (e) {
       console.log('WebActivities unavailable? : ' + e);
     }
@@ -301,11 +359,11 @@ var KeypadManager = {
   },
 
   hangUpCallFromKeypad: function hk_hangUpCallFromKeypad(event) {
-    CallScreen.views.classList.remove('show');
+    CallScreen.body.classList.remove('showKeypad');
     OnCallHandler.end();
   },
 
-  formatPhoneNumber: function kh_formatPhoneNumber(ellipsisSide) {
+  formatPhoneNumber: function kh_formatPhoneNumber(ellipsisSide, maxFontSize) {
     if (this._onCall) {
       var fakeView = CallScreen.activeCall.querySelector('.fake-number');
       var view = CallScreen.activeCall.querySelector('.number');
@@ -321,41 +379,60 @@ var KeypadManager = {
       }
     }
 
-    var newFontSize = this.getNextFontSize(view, fakeView);
+    var newFontSize;
+    if (maxFontSize) {
+      newFontSize = this.maxFontSize;
+    } else {
+      newFontSize = this.getNextFontSize(view, fakeView);
+    }
     view.style.fontSize = newFontSize + 'px';
     this.addEllipsis(view, fakeView, ellipsisSide);
   },
 
   addEllipsis: function kh_addEllipsis(view, fakeView, ellipsisSide) {
-    var side = ellipsisSide || 'left';
-    var computedStyle = window.getComputedStyle(view, null);
-    var currentFontSize = parseInt(computedStyle.getPropertyValue('font-size'));
-    var viewWidth = view.getBoundingClientRect().width;
-    fakeView.style.fontSize = currentFontSize + 'px';
-    fakeView.innerHTML = view.value ? view.value : view.innerHTML;
-
-    var counter = 1;
-    var value = fakeView.innerHTML;
-
-    var newPhoneNumber;
-    while (fakeView.getBoundingClientRect().width > viewWidth) {
-      if (side == 'left') {
-        newPhoneNumber = '\u2026' + value.substr(-value.length + counter);
-      } else if (side == 'right') {
-        newPhoneNumber = value.substr(0, value.length - counter) + '\u2026';
-      }
-
-      fakeView.innerHTML = newPhoneNumber;
-      counter++;
-    }
-
-    if (newPhoneNumber) {
-      if (view.value) {
-        view.value = newPhoneNumber;
+    var side = ellipsisSide || 'begin';
+    LazyL10n.get(function localized(_) {
+      var localizedSide;
+      if (navigator.mozL10n.language.direction === 'rtl') {
+        localizedSide = (side === 'begin' ? 'right' : 'left');
       } else {
-        view.innerHTML = newPhoneNumber;
+        localizedSide = (side === 'begin' ? 'left' : 'right');
       }
-    }
+      var computedStyle = window.getComputedStyle(view, null);
+      var currentFontSize = parseInt(computedStyle.getPropertyValue('font-size'));
+      var viewWidth = view.getBoundingClientRect().width;
+      fakeView.style.fontSize = currentFontSize + 'px';
+      fakeView.innerHTML = view.value ? view.value : view.innerHTML;
+
+      var value = fakeView.innerHTML;
+
+      // Guess the possible position of the ellipsis in order to minimize
+      // the following while loop iterations:
+      var counter = value.length -
+        (viewWidth *
+         (fakeView.textContent.length / fakeView.getBoundingClientRect().width));
+
+      var newPhoneNumber;
+      while (fakeView.getBoundingClientRect().width > viewWidth) {
+
+        if (localizedSide == 'left') {
+          newPhoneNumber = '\u2026' + value.substr(-value.length + counter);
+        } else if (localizedSide == 'right') {
+          newPhoneNumber = value.substr(0, value.length - counter) + '\u2026';
+        }
+
+        fakeView.innerHTML = newPhoneNumber;
+        counter++;
+      }
+
+      if (newPhoneNumber) {
+        if (view.value) {
+          view.value = newPhoneNumber;
+        } else {
+          view.innerHTML = newPhoneNumber;
+        }
+      }
+    });
   },
 
   getNextFontSize: function kh_getNextFontSize(view, fakeView) {
@@ -386,8 +463,15 @@ var KeypadManager = {
   keyHandler: function kh_keyHandler(event) {
     var key = event.target.dataset.value;
 
-    if (!key)
+    // We could receive this event from an element that
+    // doesn't have the dataset value. Got the last key
+    // pressed and assing this value to continue with the
+    // proccess.
+    if (!key) {
       return;
+    }
+
+    var telephony = navigator.mozTelephony;
 
     event.stopPropagation();
     if (event.type == 'mousedown') {
@@ -395,33 +479,35 @@ var KeypadManager = {
 
       if (key != 'delete') {
         if (keypadSoundIsEnabled) {
-          TonePlayer.play(gTonesFrequencies[key]);
+          // We do not support long press if not on a call
+          TonePlayer.start(gTonesFrequencies[key], !this._onCall);
         }
 
         // Sending the DTMF tone if on a call
-        var telephony = navigator.mozTelephony;
-        if (telephony && telephony.active &&
-            telephony.active.state == 'connected') {
-
+        if (this._onCall) {
+          // Stop previous tone before dispatching a new one
+          telephony.stopTone();
           telephony.startTone(key);
-          window.setTimeout(function ch_stopTone() {
-            telephony.stopTone();
-          }, 100);
-
         }
       }
 
       // Manage long press
-      if (key == '0' || key == 'delete') {
+      if ((key == '0' && !this._onCall) || key == 'delete') {
         this._holdTimer = setTimeout(function(self) {
           if (key == 'delete') {
             self._phoneNumber = '';
           } else {
+            var index = self._phoneNumber.length - 1;
+            //Remove last 0, this is a long press and we want to add the '+'
+            if (index >= 0 && self._phoneNumber[index] === '0') {
+              self._phoneNumber = self._phoneNumber.substr(0, index);
+            }
             self._phoneNumber += '+';
           }
 
           self._longPress = true;
-          self._updatePhoneNumberView();
+          self.updateAddContactStatus();
+          self._updatePhoneNumberView('begin', false);
         }, 400, this);
       }
 
@@ -432,15 +518,10 @@ var KeypadManager = {
           self._callVoicemail();
         }, 3000, this);
       }
-    } else if (event.type == 'mouseup') {
-      // If it was a long press our work is already done
-      if (this._longPress) {
-        this._longPress = false;
-        this._holdTimer = null;
-        return;
-      }
+
       if (key == 'delete') {
         this._phoneNumber = this._phoneNumber.slice(0, -1);
+        this.updateAddContactStatus();
       } else if (this.phoneNumberViewContainer.classList.
           contains('keypad-visible')) {
         if (!this._isKeypadClicked) {
@@ -453,21 +534,51 @@ var KeypadManager = {
         }
       } else {
         this._phoneNumber += key;
+        this.updateAddContactStatus();
+      }
+      this._updatePhoneNumberView('begin', false);
+    } else if (event.type == 'mouseup' || event.type == 'mouseleave') {
+      // Stop playing the DTMF/tone after a small delay
+      // or right away if this is a long press
+
+      var delay = this._longPress ? 0 : 100;
+      if (this._onCall) {
+        if (keypadSoundIsEnabled) {
+          TonePlayer.stop();
+        }
+
+        window.setTimeout(function ch_stopTone() {
+          telephony.stopTone();
+        }, delay);
+      }
+
+      // If it was a long press our work is already done
+      if (this._longPress) {
+        this._longPress = false;
+        this._holdTimer = null;
+        return;
       }
 
       if (this._holdTimer)
         clearTimeout(this._holdTimer);
-
-      this._updatePhoneNumberView();
     }
   },
 
-  updatePhoneNumber: function kh_updatePhoneNumber(number) {
-    this._phoneNumber = number;
-    this._updatePhoneNumberView();
+  updateAddContactStatus: function kh_updateAddContactStatus() {
+    if (this._phoneNumber.length === 0)
+      this.callBarAddContact.classList.add('disabled');
+    else
+      this.callBarAddContact.classList.remove('disabled');
   },
 
-  _updatePhoneNumberView: function kh_updatePhoneNumberview() {
+  updatePhoneNumber: function kh_updatePhoneNumber(number, ellipsisSide,
+    maxFontSize) {
+    this._phoneNumber = number;
+    this._updatePhoneNumberView(ellipsisSide, maxFontSize);
+  },
+
+  _updatePhoneNumberView: function kh_updatePhoneNumberview(ellipsisSide,
+    maxFontSize) {
     var phoneNumber = this._phoneNumber;
 
     // If there are digits in the phone number, show the delete button.
@@ -483,24 +594,37 @@ var KeypadManager = {
       this.phoneNumberView.value = phoneNumber;
       this.moveCaretToEnd(this.phoneNumberView);
     }
-
-    this.formatPhoneNumber();
+    
+    this.formatPhoneNumber(ellipsisSide, maxFontSize);
   },
 
-  restorePhoneNumber: function kh_restorePhoneNumber() {
-    this.updatePhoneNumber(this._originalPhoneNumber);
+  restorePhoneNumber: function kh_restorePhoneNumber(ellipsisSide,
+    maxFontSize) {
+    this.updatePhoneNumber(this._originalPhoneNumber, ellipsisSide,
+      maxFontSize);
   },
 
   updateAdditionalContactInfo:
-    function kh_updatePhoneNumber(additionalContactInfo) {
+    function kh_updateAdditionalContactInfo(additionalContactInfo) {
     this._additionalContactInfo = additionalContactInfo;
     this._updateAdditionalContactInfoView();
   },
 
   _updateAdditionalContactInfoView:
     function kh__updateAdditionalContactInfoView() {
-    var view = CallScreen.activeCall.querySelector('.additionalContactInfo');
-    view.textContent = this._additionalContactInfo;
+    var phoneNumberView = CallScreen.activeCall.querySelector('.number');
+    var additionalview = CallScreen.activeCall.querySelector(
+      '.additionalContactInfo');
+    if (!this._additionalContactInfo ||
+      this._additionalContactInfo.trim() === '') {
+      additionalview.textContent = '';
+      additionalview.classList.add('noAdditionalContactInfo');
+      phoneNumberView.classList.add('noAdditionalContactInfo');
+    } else {
+      phoneNumberView.classList.remove('noAdditionalContactInfo');
+      additionalview.classList.remove('noAdditionalContactInfo');
+      additionalview.textContent = this._additionalContactInfo;
+    }
   },
 
   restoreAdditionalContactInfo: function kh_restoreAdditionalContactInfo() {
@@ -518,10 +642,10 @@ var KeypadManager = {
       return;
      }
      var transaction = settings.createLock();
-     var request = transaction.get('ro.moz.ril.iccmbdn');
+     var request = transaction.get('ril.iccInfo.mbdn');
      request.onsuccess = function() {
-       if (request.result['ro.moz.ril.iccmbdn']) {
-         CallHandler.call(request.result['ro.moz.ril.iccmbdn']);
+       if (request.result['ril.iccInfo.mbdn']) {
+         CallHandler.call(request.result['ril.iccInfo.mbdn']);
        }
      };
      request.onerror = function() {};

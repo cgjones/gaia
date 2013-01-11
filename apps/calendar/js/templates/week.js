@@ -1,23 +1,40 @@
 (function(window) {
   var Week = Calendar.Template.create({
-    header: '<h1 class="date">{value}</h1>',
+    header: function() {
+      return '<h1 class="date">' + this.h('value') + '</h1>';
+    },
 
-    sidebarHour: '<li class="hour-{hour}">{displayHour}</li>',
+    sidebarHour: function() {
+      var l10n = '';
+      var hour = this.h('hour');
+      var displayHour;
 
-    hour: [
-      '<ol class="hour-{hour} events">',
-        '{items|s}',
-      '</ol>'
-    ].join(''),
+      if (hour === Calendar.Calc.ALLDAY) {
+        l10n = ' data-l10n-id="hour-allday" ';
+        displayHour = navigator.mozL10n.get('hour-allday');
+      } else {
+        displayHour = this.h('displayHour');
+      }
 
-    event: [
-      '<li class="event" data-id="{busytimeId}">',
-        '<div class="container calendar-id-{calendarId} ' +
-                    'calendar-display calendar-color">',
-          '{title}',
-        '</div>',
-      '</li>'
-    ].join('')
+      return '<li ' + hour + ' class="hour-' + this.h('hour') + '">' +
+                displayHour +
+              '</li>';
+    },
+
+    hour: function() {
+      return '<ol class="hour-' + this.h('hour') + ' events">' +
+          this.s('items') +
+        '</ol>';
+    },
+
+    event: function() {
+      return '<li class="event" data-id="' + this.h('busytimeId') + '">' +
+          '<div class="container calendar-id-' + this.h('calendarId') + ' ' +
+                      'calendar-display calendar-color">' +
+            this.h('title') +
+          '</div>' +
+        '</li>';
+    }
   });
 
   Week.eventSelector = '.event';

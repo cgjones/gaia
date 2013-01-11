@@ -17,6 +17,10 @@
   padding: 0;
 }
 
+html {
+  pointer-events: none;
+}
+
 body {
   overflow: hidden;
 }
@@ -35,6 +39,7 @@ button::-moz-focus-inner {
   overflow: hidden;
   width: 0;
   height: 0;
+  display: none;
 }
 
 /* Keyboard */
@@ -45,11 +50,7 @@ button::-moz-focus-inner {
   width: 100%;
   background: #6a6f73;
   border-top: solid 1px #000;
-  -moz-transition: -moz-transform 0.3s ease;
-}
-
-#keyboard.hide{
-  -moz-transform: translateY(100%);
+  pointer-events: auto;
 }
 
 /* Rows */
@@ -87,7 +88,7 @@ button::-moz-focus-inner {
   background-size: 100% 100%;
 }
 
-
+/* Standard key styles. */
 .keyboard-key > .visual-wrapper > span {
   /*
     top - begin | top - end
@@ -135,6 +136,10 @@ button::-moz-focus-inner {
   background: url(images/dark-alpha.png) repeat left top;
   border-radius: 0.6rem;
 }
+.keyboard-key:not(.special-key).highlighted:last-child > .visual-wrapper:after {
+  right: -0.2rem;
+  border-radius: 0.6rem 0 0 0.6rem; 
+}
 .keyboard-key:not(.special-key).highlighted > .visual-wrapper:before {
   content: "";
   position: absolute;
@@ -169,6 +174,10 @@ button::-moz-focus-inner {
   z-index: -1;
   background: url(images/dark-alpha.png) repeat left top;
   border-radius: 0.6rem;
+}
+.keyboard-key:not(.special-key).highlighted:last-child > .visual-wrapper > span:after {
+  right: -0.2rem;
+  border-radius: 0.6rem 0 0 0.6rem;
 }
 
 .keyboard-key:not(.special-key).highlighted:last-child  > .visual-wrapper > span {
@@ -234,35 +243,25 @@ button::-moz-focus-inner {
 }
 
 /* Spacebar exceptions */
-.keyboard-key[data-keycode="32"] > .visual-wrapper {
-background-position: center 2.2rem; 
-}
-
 .keyboard-key.highlighted[data-keycode="32"] > .visual-wrapper {
-  border: solid 1px #000;
+  background: #4AB6CB;
   border-radius: 0.3rem;
-  background: #252220 url(images/key-bg.png) no-repeat center 2.2rem;
-  background-size: 100% 100%;
-  opacity: 0.5;
-  margin: 0;
+  border: solid 1px #3f5459;
   height: 4rem;
 }
-
-.keyboard-key.highlighted[data-keycode="32"] > .visual-wrapper > span  {
-  border: none;
-  border-top: solid 1px #514e4d;
-  background: none;
+.keyboard-key.highlighted[data-keycode="32"] > .visual-wrapper:after {
+  content: "";
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1;
-  height: 100%;
+  left: -0.2rem;
+  right: -0.2rem;
+  top: -0.2rem;
+  bottom: -0.25rem;
+  z-index: -1;
+  background: #4495A8;
+  border-radius: 0.3rem;
 }
-
-.keyboard-key.highlighted[data-keycode="32"] > .visual-wrapper:after,
 .keyboard-key.highlighted[data-keycode="32"] > .visual-wrapper:before,
+.keyboard-key.highlighted[data-keycode="32"] > .visual-wrapper > span,
 .keyboard-key.highlighted[data-keycode="32"] > .visual-wrapper > span:after {
   display: none;
 }
@@ -301,7 +300,9 @@ background-position: center 2.2rem;
   border-color: transparent;
 }
 
-/* Alternatives menu */
+/* Alternatives menu -- this menu appears when you tap and hold a key that has
+alternative special (accented) characters. The menu "grows" out of the key
+and displays the list of alternatives. */
 #keyboard-accent-char-menu {
   position: absolute;
   bottom: 0;
@@ -309,8 +310,8 @@ background-position: center 2.2rem;
   margin-bottom: -1px;
   height: 5.8rem;
   border-radius: 0.3rem;
-  background: #6EC5D5;
-  border: 1px solid #92d3e0;
+  background: #333;
+  border: 1px solid #000;
   white-space: nowrap;
   overflow: visible;
   display: none;
@@ -383,22 +384,25 @@ background-position: center 2.2rem;
   display: none;
 }
 
+/* Styles for keys in accent menu (not highlighted). */
 #keyboard-accent-char-menu .keyboard-key > .visual-wrapper > span {
   border: none;
   font: 3rem/5rem MozTT, Sans-serif;
   font-weight: 500;
-  color: #333;
+  color: #fff;
 }
 
 /* Highlighted non keboard key style */
 #keyboard-accent-char-menu .keyboard-key.highlighted > .visual-wrapper {
-  background: #333;
-  border: solid 0.2rem #333;
+  background: #6ec5d5;
+  border: solid 0.2rem #6ec5d5;
   -moz-box-sizing: content-box;
-  border-top: solid 1px #999;
-  border-bottom: solid 1px #333;
+  border-top: solid 1px #8BD1DD;
+  border-bottom: solid 1px #6ec5d5;
 }
 
+/* Highlighted special accent characters. These keys appear in the popover
+bubble above the key when you tap and hold. */
 #keyboard-accent-char-menu .keyboard-key.highlighted > .visual-wrapper > span {
   top: 0;
   left: 0;
@@ -406,7 +410,7 @@ background-position: center 2.2rem;
   z-index: 1;
   height: 100%;
   font-weight: normal;
-  color: #fff;
+  color: #1a3f46;
   background: none;
 }
 

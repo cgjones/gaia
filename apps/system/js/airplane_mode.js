@@ -4,6 +4,8 @@
 'use strict';
 
 var AirplaneMode = {
+  enabled: false,
+
   init: function apm_init() {
     if (!window.navigator.mozSettings)
       return;
@@ -32,22 +34,25 @@ var AirplaneMode = {
     var wifiManager = window.navigator.mozWifiManager;
     var mobileData = window.navigator.mozMobileConnection &&
       window.navigator.mozMobileConnection.data;
+    var fmRadio = window.navigator.mozFMRadio;
 
     var restoreMobileData = false;
     var restoreBluetooth = false;
     var restoreWifi = false;
     var restoreGeolocation = false;
     // Note that we don't restore Wifi tethering when leaving airplane mode
-    // because Wifi tethering can't be switched on before data connection is established.
+    // because Wifi tethering can't be switched on before data connection is
+    // established.
 
     var self = this;
     SettingsListener.observe('ril.radio.disabled', false, function(value) {
       if (value) {
         // Entering airplane mode.
+        self.enabled = true;
 
         // Turn off mobile data
         // We toggle the mozSettings value here just for the sake of UI,
-        // platform ril dissconnects mobile data when
+        // platform ril disconnects mobile data when
         // 'ril.radio.disabled' is true.
         if (mobileData) {
           restoreMobileData = mobileDataEnabled;
@@ -91,7 +96,12 @@ var AirplaneMode = {
           });
         }
 
+        // Turn off FM Radio.
+        if (fmRadio && fmRadio.enabled)
+          fmRadio.disable();
+
       } else {
+        self.enabled = false;
         // Don't attempt to turn on mobile data if it's already on
         if (mobileData && !mobileDataEnabled && restoreMobileData) {
           SettingsListener.getSettingsLock().set({
@@ -125,3 +135,4 @@ var AirplaneMode = {
 };
 
 AirplaneMode.init();
+

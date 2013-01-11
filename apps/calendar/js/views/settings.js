@@ -8,7 +8,6 @@
 
     this._initEvents();
     this._hideSettings = this._hideSettings.bind(this);
-    this.syncProgressTarget = document.body;
   }
 
   Settings.prototype = {
@@ -26,8 +25,6 @@
      * Name of the class that will be applied to the
      * body element when sync is in progress.
      */
-    syncClass: 'sync-in-progress',
-
     selectors: {
       element: '#settings',
       calendars: '#settings .calendars',
@@ -65,16 +62,6 @@
         case 'remove':
           this._remove.apply(this, event.data);
           break;
-
-        // hide sync button
-        case 'sync start':
-          this.syncProgressTarget.classList.add(this.syncClass);
-          break;
-
-        // show sync button
-        case 'sync complete':
-          this.syncProgressTarget.classList.remove(this.syncClass);
-          break;
       }
     },
 
@@ -85,11 +72,6 @@
       store.on('update', this);
       store.on('add', this);
       store.on('remove', this);
-
-      // sync controller events
-      var controller = this.app.syncController;
-      controller.on('sync start', this);
-      controller.on('sync complete', this);
 
       // dom events
       this.syncButton.addEventListener('click', this._onSyncClick.bind(this));
@@ -123,9 +105,9 @@
     },
 
     _onSyncClick: function() {
-      // trigger the sync the sync start/complete events
+      // trigger the sync the syncStart/complete events
       // will hide/show the button.
-      this.app.syncController.sync();
+      this.app.syncController.all();
     },
 
     _update: function(id, model) {

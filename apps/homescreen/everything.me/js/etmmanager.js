@@ -1,38 +1,29 @@
 
 "use strict";
 
-var EvmeManager = (function() {
-    var currentWindow = null;
+var EvmeManager = (function EvmeManager() {
+    var currentWindow = null,
+        currentURL = null;
 
     function openApp(params) {
         var evmeApp = new EvmeApp({
-            url: params.originUrl,
+            bookmarkURL: params.originUrl,
             name: params.title,
             icon: params.icon
         });
 
-        if (currentWindow) {
-            currentWindow.close();
-        }
-        currentWindow = evmeApp.launch(params.url, params.urlTitle);
+        evmeApp.launch(params.url, params.urlTitle, params.useAsyncPanZoom);
+        currentURL = params.url;
     }
 
     function addBookmark(params) {
-        var data = {
-          url: params.originUrl,
+        GridManager.install(new Bookmark({
+          bookmarkURL: params.originUrl,
           name: params.title,
-          icon: params.icon
-        }
-
-        function success() {
-           Applications.installBookmark(new Bookmark(data));
-        }
-
-        function error() {
-            // Anything to do in case of error?
-        }
-
-        HomeState.saveBookmark(data, success, error);
+          icon: params.icon,
+          iconable: false,
+          useAsyncPanZoom: params.useAsyncPanZoom
+        }));
     }
 
     function openUrl(url) {
@@ -44,31 +35,50 @@ var EvmeManager = (function() {
             }
         });
     }
-    
+
     function menuShow() {
         footerStyle.MozTransform = "translateY(0)";
     }
-    
+
     function menuHide() {
         footerStyle.MozTransform = "translateY(75px)";
     }
 
     var footerStyle = document.getElementById("footer").style;
     footerStyle.MozTransition = "-moz-transform .3s ease";
-    
+
     function getMenuHeight() {
         return document.getElementById("footer").offsetHeight;
     }
-    
+
     function getApps() {
-        return Applications.getAll();
+        return GridManager.getApps();
     }
-    
+
     function getAppIcon(app) {
-        return Applications.getIcon(app.origin);
+        var iconsForApp = GridManager.getIconsForApp(app);
+        for (var entryPoint in iconsForApp) {
+          return iconsForApp[entryPoint].descriptor.icon;
+        }
     }
     function getAppName(app) {
-        return Applications.getName(app.origin);
+        var manifest = app.manifest;
+        if (!manifest) {
+            return null;
+        }
+
+        if ('locales' in manifest) {
+            var locale = manifest.locales[document.documentElement.lang];
+            if (locale && locale.name) {
+                return locale.name;
+            }
+        }
+
+        return manifest.name;
+    }
+
+    function getIconSize() {
+        return Icon.prototype.MAX_ICON_SIZE;
     }
 
     return {
@@ -77,17 +87,20 @@ var EvmeManager = (function() {
         addBookmark: addBookmark,
 
         isAppInstalled: function isAppInstalled(url) {
-            return Applications.isInstalled(url);
+            return GridManager.getIconForBookmark(url) ||
+                   GridManager.getAppByOrigin(url);
         },
         getApps: getApps,
         getAppIcon: getAppIcon,
         getAppName: getAppName,
 
         openUrl: openUrl,
-        
+
         menuShow: menuShow,
         menuHide: menuHide,
-        getMenuHeight: getMenuHeight
+        getMenuHeight: getMenuHeight,
+
+        getIconSize: getIconSize
     };
 }());
 
@@ -96,3 +109,38 @@ var EvmeApp = function createEvmeApp(params) {
 };
 
 extend(EvmeApp, Bookmark);
+
+EvmeApp.prototype.launch = function evmeapp_launch(url, name, useAsyncPanZoom) {
+    var features = {
+      name: this.manifest.name.replace(/\s/g, '&nbsp;'),
+      icon: this.manifest.icons['60'],
+      remote: true,
+      useAsyncPanZoom: useAsyncPanZoom
+    };
+
+    if (!GridManager.getIconForBookmark(this.origin)) {
+      features.origin = {
+        name: features.name,
+        url: encodeURIComponent(this.origin)
+      };
+    }
+
+    if (url && url !== this.origin && !GridManager.getIconForBookmark(url)) {
+      var searchName = navigator.mozL10n.get('wrapper-search-name', {
+        topic: name,
+        name: this.manifest.name
+      }).replace(/\s/g, '&nbsp;');
+
+      features.name = searchName;
+      features.search = {
+        name: searchName,
+        url: encodeURIComponent(url)
+      };
+    }
+
+    // The third parameter is received in window_manager without whitespaces
+    // so we decice replace them for &nbsp;
+    // We use `e.me` name in order to always reuse the same window
+    // so that we can only open one e.me app at a time
+    return window.open(url || this.origin, 'e.me', JSON.stringify(features));
+};

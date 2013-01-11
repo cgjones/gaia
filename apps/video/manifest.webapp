@@ -9,7 +9,10 @@
   },
   "permissions": {
     "device-storage:videos":{ "access": "readwrite" },
-    "deprecated-hwvideo":{}
+    "settings":{ "access": "readonly" },
+    "deprecated-hwvideo":{},
+    "audio-channel-content":{},
+    "systemXHR":{}
   },
   "locales": {
     "ar": {
@@ -37,8 +40,11 @@
   "activities": {
     "view" : {
       "filters": {
-        "type": ["video/webm", "video/mp4"]
-      }
+        "type": ["video/webm", "video/mp4", "video/3gpp", "video/youtube"]
+      },
+      "href": "view.html",
+      "disposition": "inline",
+      "returnValue": true
     }
   }
 }

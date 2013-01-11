@@ -7,22 +7,12 @@ var ApplicationsList = {
   _apps: [],
   _displayedApp: null,
 
-  _permissions: [
-    'power', 'sms', 'contacts', 'telephony', 'mozBluetooth', 'browser',
-    'mozApps', 'mobileconnection', 'mozFM', 'systemXHR', 'background',
-    'backgroundservice', 'settings', 'alarm', 'camera', 'fmradio', 'voicemail',
-    'wifi-manage', 'wifi', 'networkstats-manage', 'geolocation',
-    'webapps-manage', 'permissions', 'desktop-notification',
-    'device-storage:pictures', 'device-storage:music', 'device-storage:videos',
-    'device-storage:apps', 'alarms', 'attention', 'content-camera',
-    'tcp-socket', 'bluetooth', 'storage', 'time', 'networkstats-manager',
-    'idle', 'network-events', 'embed-apps',
-    // Just don't.
-    'deprecated-hwvideo'
-  ],
+  _permissionsTable: null,
 
   container: document.querySelector('#appPermissions > ul'),
   detailTitle: document.querySelector('#appPermissions-details > header > h1'),
+  developerHeader: document.getElementById('developer-header'),
+  developerInfos: document.getElementById('developer-infos'),
   developerName: document.querySelector('#developer-infos > a'),
   developerLink: document.querySelector('#developer-infos > small > a'),
   detailPermissionsList: document.querySelector('#permissionsListHeader + ul'),
@@ -30,25 +20,103 @@ var ApplicationsList = {
   uninstallButton: document.getElementById('uninstall-app'),
 
   init: function al_init() {
-    this.loadApps();
-
     var appsMgmt = navigator.mozApps.mgmt;
     appsMgmt.oninstall = this.oninstall.bind(this);
     appsMgmt.onuninstall = this.onuninstall.bind(this);
 
-    this.uninstallButton.addEventListener('click', this.uninstall.bind(this));
+    this.uninstallButton.addEventListener('click', this);
+    this.container.addEventListener('click', this);
+
+    // load the permission table
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/resources/permissions_table.json', true);
+    xhr.responseType = 'json';
+    xhr.onreadystatechange = (function() {
+      if (xhr.readyState == 4 && (xhr.status == 200 || xhr.status === 0)) {
+        var table = xhr.response;
+        this._permissionsTable = table;
+
+        this.initExplicitPermissionsTable();
+      }
+    }).bind(this);
+    xhr.send();
+  },
+
+  initExplicitPermissionsTable: function al_initExplicitPermissionsTable() {
+    var self = this;
+
+    var table = this._permissionsTable;
+    table.explicitCertifiedPermissions = [];
+
+    var mozPerms = navigator.mozPermissionSettings;
+
+    // we need _any_ certified app in order to build the
+    // explicitCertifiedPermissions list so we use the Settings app itself.
+    window.navigator.mozApps.getSelf().onsuccess = function getSelfCB(evt) {
+      var app = evt.target.result;
+
+      table.plainPermissions.forEach(function permIterator(perm) {
+        var isExplicit = mozPerms.isExplicit(perm, app.manifestURL,
+                                             app.origin, false);
+        if (isExplicit) {
+          table.explicitCertifiedPermissions.push(perm);
+        }
+      });
+
+      table.composedPermissions.forEach(function permIterator(perm) {
+        table.accessModes.some(function modeIterator(mode) {
+          var composedPerm = perm + '-' + mode;
+          var isExplicit = mozPerms.isExplicit(composedPerm, app.manifestURL,
+                                               app.origin, false);
+          if (isExplicit) {
+            table.explicitCertifiedPermissions.push(composedPerm);
+          }
+        });
+      });
+
+      // then load the apps
+      self.loadApps();
+    };
+  },
+
+  handleEvent: function al_handleEvent(evt) {
+    if (evt.target == this.uninstallButton) {
+      this.uninstall();
+      return;
+    }
+
+    var appIndex = evt.target.dataset.appIndex;
+    if (appIndex) {
+      this.showAppDetails(this._apps[appIndex]);
+      return;
+    }
   },
 
   loadApps: function al_loadApps() {
     var self = this;
+    var table = this._permissionsTable;
+    var mozPerms = navigator.mozPermissionSettings;
 
     navigator.mozApps.mgmt.getAll().onsuccess = function mozAppGotAll(evt) {
       var apps = evt.target.result;
+
       apps.forEach(function(app) {
-        if (!app.removable)
+        if (HIDDEN_APPS.indexOf(app.manifestURL) != -1)
           return;
 
-        self._apps.push(app);
+        var manifest = app.manifest ? app.manifest : app.updateManifest;
+        if (manifest.type != 'certified') {
+          self._apps.push(app);
+          return;
+        }
+
+        var display = table.explicitCertifiedPermissions.some(function iterator(perm) {
+          return mozPerms.get(perm, app.manifestURL, app.origin, false) != 'unknown';
+        });
+
+        if (display) {
+          self._apps.push(app);
+        }
       });
 
       self._sortApps();
@@ -59,34 +127,46 @@ var ApplicationsList = {
   render: function al_render() {
     this.container.innerHTML = '';
 
-    this._apps.forEach(function appIterator(app) {
-      var icon = '';
-      if (app.manifest.icons &&
-          Object.keys(app.manifest.icons).length) {
+    var listFragment = document.createDocumentFragment();
+    this._apps.forEach(function appIterator(app, index) {
+      var icon = null;
+      var manifest = new ManifestHelper(app.manifest ? app.manifest : app.updateManifest);
+      if (manifest.icons &&
+          Object.keys(manifest.icons).length) {
 
-        var key = Object.keys(app.manifest.icons)[0];
-        var iconURL = app.manifest.icons[key];
+        var key = Object.keys(manifest.icons)[0];
+        var iconURL = manifest.icons[key];
 
         // Adding origin if it's not a data URL
         if (!(iconURL.slice(0, 4) === 'data')) {
           iconURL = app.origin + '/' + iconURL;
         }
 
-        icon = '<img src="' + iconURL + '" />';
+        icon = document.createElement('img');
+        icon.src = iconURL;
       }
 
       var item = document.createElement('li');
-      item.innerHTML = '<a href="#appPermissions-details">' +
-                       icon + app.manifest.name + '</a>';
-      item.onclick = this.showAppDetails.bind(this, app);
-      this.container.appendChild(item);
+
+      var link = document.createElement('a');
+      link.href = '#appPermissions-details';
+      if (icon) {
+        link.appendChild(icon);
+      }
+      var name = document.createTextNode(manifest.name);
+      link.appendChild(name);
+      link.dataset.appIndex = index;
+
+      item.appendChild(link);
+
+      listFragment.appendChild(item);
     }, this);
+
+    this.container.appendChild(listFragment);
   },
 
   oninstall: function al_oninstall(evt) {
     var app = evt.application;
-    if (!app.removable)
-      return;
 
     this._apps.push(app);
     this._sortApps();
@@ -106,7 +186,7 @@ var ApplicationsList = {
       return false;
     });
 
-    if (!app || !app.removable)
+    if (!app)
       return;
 
     window.location.hash = '#appPermissions';
@@ -119,66 +199,110 @@ var ApplicationsList = {
   showAppDetails: function al_showAppDetail(app) {
     this._displayedApp = app;
 
-    var manifest = app.manifest;
+    var manifest = new ManifestHelper(app.manifest ? app.manifest : app.updateManifest);
+    var developer = manifest.developer;
     this.detailTitle.textContent = manifest.name;
-    this.developerName.textContent = manifest.developer.name;
-    this.developerName.dataset.href = manifest.developer.url;
-    this.developerLink.href = manifest.developer.url;
-    this.developerLink.dataset.href = manifest.developer.url;
-    this.developerLink.textContent = manifest.developer.url;
 
+    this.uninstallButton.disabled = !app.removable;
+
+    if (!developer || !('name' in developer)) {
+      this.developerInfos.hidden = true;
+      this.developerHeader.hidden = true;
+    } else {
+      this.developerName.textContent = developer.name;
+      this.developerInfos.hidden = false;
+      this.developerHeader.hidden = false;
+      if (!developer.url) {
+        delete this.developerName.dataset.href;
+        delete this.developerLink.href;
+        this.developerLink.hidden = true;
+      } else {
+        this.developerLink.hidden = false;
+        this.developerName.dataset.href = developer.url;
+        this.developerLink.href = developer.url;
+        this.developerLink.dataset.href = developer.url;
+        this.developerLink.textContent = developer.url;
+      }
+    }
     this.detailPermissionsList.innerHTML = '';
-
-    var _ = navigator.mozL10n.get;
 
     var mozPerms = navigator.mozPermissionSettings;
     if (!mozPerms)
       return;
 
-    // We display permissions declared in the manifest
-    // and any other granted permission.
-    this._permissions.forEach(function appIterator(perm) {
+    var table = this._permissionsTable;
+
+    table.plainPermissions.forEach(function appIterator(perm) {
       var value = mozPerms.get(perm, app.manifestURL, app.origin, false);
-      if ((manifest.permissions && perm in manifest.permissions) ||
-          value === 'allow') {
-        var item = document.createElement('li');
-        var content = document.createElement('span');
-        content.textContent = _(perm);
+      if (this._shouldDisplayPerm(app, perm, value)) {
+        this._insertPermissionSelect(perm, value);
+      }
+    }, this);
 
-        var select = document.createElement('select');
-        select.dataset.perm = perm;
+    table.composedPermissions.forEach(function appIterator(perm) {
+      var value = null;
+      var display = table.accessModes.some(function modeIterator(mode) {
+        var composedPerm = perm + '-' + mode;
+        value = mozPerms.get(composedPerm, app.manifestURL, app.origin, false);
+        if (this._shouldDisplayPerm(app, composedPerm, value)) {
+          return true;
+        }
+        return false;
+      }, this);
 
-        var askOpt = document.createElement('option');
-        askOpt.value = 'ask';
-        askOpt.text = _('ask');
-        select.add(askOpt);
-
-        var denyOpt = document.createElement('option');
-        denyOpt.value = 'deny';
-        denyOpt.text = _('deny');
-        select.add(denyOpt);
-
-        var allowOpt = document.createElement('option');
-        allowOpt.value = 'allow';
-        allowOpt.text = _('allow');
-        select.add(allowOpt);
-
-        select.value = value;
-        select.setAttribute('value', value);
-        select.onchange = this.selectValueChanged.bind(this);
-
-        item.onclick = function focusSelect() {
-          select.focus();
-        };
-
-        content.appendChild(select);
-        item.appendChild(content);
-        this.detailPermissionsList.appendChild(item);
+      if (display) {
+        this._insertPermissionSelect(perm, value);
       }
     }, this);
 
     this.detailPermissionsHeader.hidden =
       !this.detailPermissionsList.children.length;
+  },
+
+  _shouldDisplayPerm: function al_shouldDisplayPerm(app, perm, value) {
+    var mozPerms = navigator.mozPermissionSettings;
+    var isExplicit = mozPerms.isExplicit(perm, app.manifestURL,
+                                         app.origin, false);
+
+    return (isExplicit && value !== 'unknown');
+  },
+
+  _insertPermissionSelect: function al_insertPermissionSelect(perm, value) {
+    var _ = navigator.mozL10n.get;
+
+    var item = document.createElement('li');
+    var content = document.createElement('span');
+    content.textContent = _('perm-' + perm.replace(':', '-'));
+
+    var select = document.createElement('select');
+    select.dataset.perm = perm;
+
+    var askOpt = document.createElement('option');
+    askOpt.value = 'prompt';
+    askOpt.text = _('ask');
+    select.add(askOpt);
+
+    var denyOpt = document.createElement('option');
+    denyOpt.value = 'deny';
+    denyOpt.text = _('deny');
+    select.add(denyOpt);
+
+    var allowOpt = document.createElement('option');
+    allowOpt.value = 'allow';
+    allowOpt.text = _('allow');
+    select.add(allowOpt);
+
+    select.value = value;
+    select.setAttribute('value', value);
+    select.onchange = this.selectValueChanged.bind(this);
+
+    item.onclick = function focusSelect() {
+      select.focus();
+    };
+
+    content.appendChild(select);
+    item.appendChild(content);
+    this.detailPermissionsList.appendChild(item);
   },
 
   selectValueChanged: function al_selectValueChanged(evt) {
@@ -196,7 +320,7 @@ var ApplicationsList = {
       return;
 
     var _ = navigator.mozL10n.get;
-    var name = this._displayedApp.manifest.name;
+    var name = new ManifestHelper(this._displayedApp.manifest).name;
 
     if (confirm(_('uninstallConfirm', {app: name}))) {
       this._displayedApp.uninstall();
@@ -209,12 +333,36 @@ var ApplicationsList = {
     if (!mozPerms)
       return;
 
-    mozPerms.set(perm, value, app.manifestURL, app.origin, false);
+    var table = this._permissionsTable;
+
+    // We edit the composed permission for all the access modes
+    if (table.composedPermissions.indexOf(perm) !== -1) {
+      table.accessModes.forEach(function modeIterator(mode) {
+        var composedPerm = perm + '-' + mode;
+        try {
+          mozPerms.set(composedPerm, value, app.manifestURL, app.origin, false);
+        } catch (e) {
+          console.warn('Failed to set the ' + composedPerm + 'permission.');
+        }
+      }, this);
+
+      return;
+    }
+
+    try {
+      mozPerms.set(perm, value, app.manifestURL, app.origin, false);
+    } catch (e) {
+      console.warn('Failed to set the ' + perm + 'permission.');
+    }
   },
 
   _sortApps: function al_sortApps() {
     this._apps.sort(function alphabeticalSort(app, otherApp) {
-      return app.manifest.name > otherApp.manifest.name;
+      var manifest = new ManifestHelper(app.manifest ?
+        app.manifest : app.updateManifest);
+      var otherManifest = new ManifestHelper(otherApp.manifest ?
+        otherApp.manifest : otherApp.updateManifest);
+      return manifest.name > otherManifest.name;
     });
   }
 };

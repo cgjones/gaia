@@ -3,7 +3,7 @@ requireCommon('test/synthetic_gestures.js');
 requireApp('calendar/test/unit/helper.js', function() {
   require('/shared/js/gesture_detector.js');
 
-  requireLib('ordered_map.js');
+  requireLib('utils/ordered_map.js');
   requireLib('timespan.js');
   requireLib('templates/month.js');
   requireLib('views/time_parent.js');
@@ -85,7 +85,7 @@ suite('views/month', function() {
 
       subject._clearSelectedDay = function() {
         calledClear = true;
-      }
+      };
 
       subject.changeDate = function(month) {
         calledActivateTime = month;
@@ -104,7 +104,7 @@ suite('views/month', function() {
 
       subject._selectDay = function() {
         calledWith = arguments;
-      }
+      };
 
       controller.selectedDay = date;
       assert.deepEqual(calledWith[0], date);
