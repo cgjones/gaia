@@ -78,7 +78,7 @@ section {
   https://bugzilla.mozilla.org/show_bug.cgi?id=570326; */
   overflow: hidden;
   position: absolute;
-  z-index: 100;
+  z-index: 1;
   top: 0;
   left: 0;
   right: 0;
@@ -93,7 +93,6 @@ section {
 
 #overlay-title {
   font-weight: normal;
-  text-transform:capitalize;
   font-size: 1.9rem;
   color: #fff;
   margin: 0 5px -10px 5px;
@@ -448,7 +447,7 @@ footer {
   width: 20%;
   height: 100%;
   left: 40%;
-  background-image: url('images/iconaction_edit_30x30.png');
+  background-image: url('images/iconaction_camera_editphoto_30x30.png');
 }
 
 #fullscreen-share-button {

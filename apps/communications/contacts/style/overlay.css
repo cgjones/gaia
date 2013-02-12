@@ -1,0 +1,25 @@
+/*
+  Loading screen while loading contacts
+*/
+
+#loading-overlay {
+  display: none;
+  z-index: 200;
+}
+
+#loading-overlay.show-overlay {
+  display: block;
+  visibility: visible !important;
+}
+
+.loading-icon {
+  text-align: center;
+}
+
+#progress-msg {
+  padding: 1.5rem 0 1rem 0;
+}
+
+#progressbar {
+  visibility: visible !important;
+}

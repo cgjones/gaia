@@ -3,6 +3,7 @@
 requireApp('system/test/unit/mock_app.js');
 requireApp('system/test/unit/mock_chrome_event.js');
 requireApp('system/test/unit/mock_statusbar.js');
+requireApp('system/test/unit/mock_manifest_helper.js');
 requireApp('system/test/unit/mock_app.js');
 requireApp('system/test/unit/mock_system_banner.js');
 requireApp('system/test/unit/mock_notification_screen.js');
@@ -20,7 +21,8 @@ var mocksForAppInstallManager = [
   'NotificationScreen',
   'Applications',
   'UtilityTray',
-  'ModalDialog'
+  'ModalDialog',
+  'ManifestHelper'
 ];
 
 mocksForAppInstallManager.forEach(function(mockName) {
@@ -265,27 +267,88 @@ suite('system/AppInstallManager >', function() {
           'install-app{"name":"Fake app"}');
       });
 
-      test('should fill the developer infos', function() {
-        assert.equal('Fake dev', AppInstallManager.authorName.textContent);
-        assert.equal('http://fakesoftware.com',
-          AppInstallManager.authorUrl.textContent);
-      });
-
-      test('should tell if the developer is unknown', function() {
-        var evt = new MockChromeEvent({
-          type: 'webapps-ask-install',
-          id: 42,
-          app: {
-            updateManifest: {
-              name: 'Fake app',
-              size: 5245678
-            }
-          }
+      suite('developer infos >', function() {
+        test('should fill the developer infos', function() {
+          assert.equal('Fake dev', AppInstallManager.authorName.textContent);
+          assert.equal('http://fakesoftware.com',
+                       AppInstallManager.authorUrl.textContent);
         });
 
-        AppInstallManager.handleAppInstallPrompt(evt.detail);
-        assert.equal('unknown', AppInstallManager.authorName.textContent);
-        assert.equal('', AppInstallManager.authorUrl.textContent);
+        test('should tell if the developer is unknown', function() {
+          var evt = new MockChromeEvent({
+            type: 'webapps-ask-install',
+            id: 42,
+            app: {
+              updateManifest: {
+                name: 'Fake app',
+                size: 5245678
+              }
+            }
+          });
+
+          AppInstallManager.handleAppInstallPrompt(evt.detail);
+          assert.equal('unknown', AppInstallManager.authorName.textContent);
+          assert.equal('', AppInstallManager.authorUrl.textContent);
+        });
+
+        test('should handle empty developer object properly', function() {
+          var evt = new MockChromeEvent({
+            type: 'webapps-ask-install',
+            id: 42,
+            app: {
+              updateManifest: {
+                name: 'Fake app',
+                size: 5245678,
+                developer: {}
+              }
+            }
+          });
+
+          AppInstallManager.handleAppInstallPrompt(evt.detail);
+          assert.equal('unknown', AppInstallManager.authorName.textContent);
+          assert.equal('', AppInstallManager.authorUrl.textContent);
+        });
+
+        test('should tell if the developer name is unknown', function() {
+          var evt = new MockChromeEvent({
+            type: 'webapps-ask-install',
+            id: 42,
+            app: {
+              updateManifest: {
+                name: 'Fake app',
+                size: 5245678,
+                developer: {
+                  url: 'http://example.com'
+                }
+              }
+            }
+          });
+
+          AppInstallManager.handleAppInstallPrompt(evt.detail);
+          assert.equal('unknown', AppInstallManager.authorName.textContent);
+          assert.equal('http://example.com',
+            AppInstallManager.authorUrl.textContent);
+        });
+
+        test('the developer url should default to blank', function() {
+          var evt = new MockChromeEvent({
+            type: 'webapps-ask-install',
+            id: 42,
+            app: {
+              updateManifest: {
+                name: 'Fake app',
+                size: 5245678,
+                developer: {
+                  name: 'Fake dev'
+                }
+              }
+            }
+          });
+
+          AppInstallManager.handleAppInstallPrompt(evt.detail);
+          assert.equal('Fake dev', AppInstallManager.authorName.textContent);
+          assert.equal('', AppInstallManager.authorUrl.textContent);
+        });
       });
 
       suite('install size >', function() {
@@ -391,11 +454,25 @@ suite('system/AppInstallManager >', function() {
   suite('duringInstall >', function() {
     var mockApp, mockAppName;
 
-    function dispatchEvent() {
-      var e = new CustomEvent('applicationinstall', {
-        detail: { application: mockApp }
+    function dispatchEvent(name, app) {
+      app = app || mockApp;
+
+      var e = new CustomEvent(name, {
+        detail: { application: app }
       });
       window.dispatchEvent(e);
+    }
+
+    var dispatchInstallEvent = dispatchEvent.bind(null, 'applicationinstall');
+
+    function dispatchUninstallEvent() {
+      var evtName = 'applicationuninstall';
+      var partialApp = {
+        manifestURL: mockApp.manifestURL,
+        origin: mockApp.origin
+      };
+
+      dispatchEvent(evtName, partialApp);
     }
 
     suite('hosted app without cache >', function() {
@@ -413,7 +490,7 @@ suite('system/AppInstallManager >', function() {
           installState: 'installed'
         });
         MockSystemBanner.mTeardown();
-        dispatchEvent();
+        dispatchInstallEvent();
       });
 
       test('should not show the icon', function() {
@@ -574,7 +651,7 @@ suite('system/AppInstallManager >', function() {
           installState: 'pending'
         });
         MockSystemBanner.mTeardown();
-        dispatchEvent();
+        dispatchInstallEvent();
       });
 
       function downloadEventsSuite(afterError) {
@@ -631,10 +708,15 @@ suite('system/AppInstallManager >', function() {
               assert.equal('wifi', MockNavigatorWakeLock.mLastWakeLock.topic);
               assert.isTrue(MockNavigatorWakeLock.mLastWakeLock.released);
             });
+
+            test('should display a confirmation', function() {
+              assert.equal(MockSystemBanner.mMessage,
+              'app-install-success{"appName":"' + mockAppName + '"}');
+            });
           });
 
           test('on downloadsuccess > should remove only its progress handler',
-            function() {
+          function() {
 
             var onprogressCalled = false;
             mockApp.onprogress = function() {
@@ -643,12 +725,6 @@ suite('system/AppInstallManager >', function() {
             mockApp.mTriggerDownloadSuccess();
             mockApp.mTriggerDownloadProgress(10);
             assert.isTrue(onprogressCalled);
-          });
-
-          test('on downloadsuccess > should display a confirmation', function() {
-            mockApp.mTriggerDownloadSuccess();
-            assert.equal(MockSystemBanner.mMessage,
-            'app-install-success{"appName":"' + mockAppName + '"}');
           });
 
           suite('on indeterminate progress >', function() {
@@ -674,6 +750,23 @@ suite('system/AppInstallManager >', function() {
               assert.equal(progressNode.position, -1);
               assert.equal(progressNode.textContent,
                 'downloadingAppProgressNoMax{"progress":"10.00 bytes"}');
+            });
+          });
+
+          suite('on uninstall >', function() {
+            setup(function() {
+              dispatchUninstallEvent();
+            });
+
+            test('should remove the notif', function() {
+              var method = 'decExternalNotifications';
+              assert.equal(fakeNotif.childElementCount, 0);
+              assert.ok(MockNotificationScreen.wasMethodCalled[method]);
+            });
+
+            test('should release the wifi wake lock', function() {
+              assert.equal('wifi', MockNavigatorWakeLock.mLastWakeLock.topic);
+              assert.isTrue(MockNavigatorWakeLock.mLastWakeLock.released);
             });
           });
 
@@ -703,7 +796,7 @@ suite('system/AppInstallManager >', function() {
           installState: 'pending'
         });
 
-        dispatchEvent();
+        dispatchInstallEvent();
       });
 
 
@@ -739,7 +832,7 @@ suite('system/AppInstallManager >', function() {
           });
 
           test('notification progress should have a max and a value',
-            function() {
+          function() {
             assert.equal(fakeNotif.querySelector('progress').max,
               mockApp.updateManifest.size);
             assert.equal(fakeNotif.querySelector('progress').value,
@@ -747,7 +840,7 @@ suite('system/AppInstallManager >', function() {
           });
 
           test('notification progress should not be indeterminate',
-            function() {
+          function() {
             assert.notEqual(fakeNotif.querySelector('progress').position, -1);
           });
 
@@ -772,25 +865,23 @@ suite('system/AppInstallManager >', function() {
               assert.isTrue(MockNavigatorWakeLock.mLastWakeLock.released);
             });
 
+            test('should display a confirmation', function() {
+              assert.equal(MockSystemBanner.mMessage,
+              'app-install-success{"appName":"' + mockAppName + '"}');
+            });
           });
 
           test('on downloadsuccess > ' +
                'should not break if wifi unlock throws an exception',
-               function() {
+          function() {
             MockNavigatorWakeLock.mThrowAtNextUnlock();
             mockApp.mTriggerDownloadSuccess();
             assert.ok(true);
           });
 
-          test('on downloadsuccess > should display a confirmation', function() {
-            mockApp.mTriggerDownloadSuccess();
-            assert.equal(MockSystemBanner.mMessage,
-            'app-install-success{"appName":"' + mockAppName + '"}');
-          });
-
           test('on indeterminate progress > ' +
               'should update the progress text content',
-            function() {
+          function() {
               mockApp.mTriggerDownloadProgress(NaN);
 
               var progressNode = fakeNotif.querySelector('progress');
@@ -814,6 +905,23 @@ suite('system/AppInstallManager >', function() {
               assert.equal(progressNode.textContent,
                 'downloadingAppProgress{"progress":"10.00 bytes",' +
                 '"max":"5.00 MB"}');
+            });
+          });
+
+          suite('on uninstall >', function() {
+            setup(function() {
+              dispatchUninstallEvent();
+            });
+
+            test('should remove the notif', function() {
+              var method = 'decExternalNotifications';
+              assert.equal(fakeNotif.childElementCount, 0);
+              assert.ok(MockNotificationScreen.wasMethodCalled[method]);
+            });
+
+            test('should release the wifi wake lock', function() {
+              assert.equal('wifi', MockNavigatorWakeLock.mLastWakeLock.topic);
+              assert.isTrue(MockNavigatorWakeLock.mLastWakeLock.released);
             });
           });
 
@@ -848,7 +956,7 @@ suite('system/AppInstallManager >', function() {
       setup(function() {
         mockApp = new MockApp({ installState: 'pending' });
         MockApplications.mRegisterMockApp(mockApp);
-        dispatchEvent();
+        dispatchInstallEvent();
         mockApp.mTriggerDownloadProgress(10);
       });
 
@@ -887,7 +995,7 @@ suite('system/AppInstallManager >', function() {
       });
 
       test('accepting should hide the dialog and call cancelDownload on app',
-        function() {
+      function() {
         fakeNotif.querySelector('.fake-notification').click();
         fakeDownloadCancelDialog.querySelector('.confirm').click();
         assert.isFalse(fakeDownloadCancelDialog.classList.contains('visible'));
@@ -896,7 +1004,7 @@ suite('system/AppInstallManager >', function() {
 
       test('accepting should hide the dialog but not call cancelDownload ' +
            'if app is uninstalled',
-        function() {
+      function() {
         fakeNotif.querySelector('.fake-notification').click();
         MockApplications.mUnregisterMockApp(mockApp);
         fakeDownloadCancelDialog.querySelector('.confirm').click();
@@ -908,25 +1016,42 @@ suite('system/AppInstallManager >', function() {
   });
 
   suite('restarting after reboot >', function() {
+    var mockApp, installedMockApp;
+
     setup(function() {
-      var mockApp = new MockApp({
+      mockApp = new MockApp({
         updateManifest: null,
         installState: 'pending'
+      });
+
+      installedMockApp = new MockApp({
+        updateManifest: null,
+        installState: 'installed'
       });
 
       var e = new CustomEvent('applicationready', {
         detail: { applications: {} }
       });
       e.detail.applications[mockApp.manifestURL] = mockApp;
+      e.detail.applications[installedMockApp.manifestURL] = installedMockApp;
       window.dispatchEvent(e);
 
-      mockApp.mTriggerDownloadProgress(50);
     });
 
-    test('should add a notification', function() {
+    test('should add a notification for the pending app', function() {
+      mockApp.mTriggerDownloadProgress(50);
+
       var method = 'incExternalNotifications';
       assert.equal(fakeNotif.childElementCount, 1);
       assert.ok(MockNotificationScreen.wasMethodCalled[method]);
+    });
+
+    test('should not add a notification for the installed app', function() {
+      installedMockApp.mTriggerDownloadProgress(50);
+
+      var method = 'incExternalNotifications';
+      assert.equal(fakeNotif.childElementCount, 0);
+      assert.isUndefined(MockNotificationScreen.wasMethodCalled[method]);
     });
   });
 

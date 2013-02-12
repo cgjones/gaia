@@ -48,7 +48,7 @@ var AppStorage = (function AppStorage() {
   };
 })();
 
-onLocalized(function SettingsAppStorage() {
+navigator.mozL10n.ready(function SettingsAppStorage() {
   function updateInfo(usedSize, freeSize) {
     var _ = navigator.mozL10n.get;
 
@@ -68,6 +68,11 @@ onLocalized(function SettingsAppStorage() {
     function formatSize(element, size, l10nId) {
       if (!element)
         return;
+
+      if (size === undefined || isNaN(size)) {
+        element.textContent = '';
+        return;
+      }
 
       // KB - 3 KB (nearest ones), MB, GB - 1.2 MB (nearest tenth)
       var fixedDigits = (size < 1024 * 1024) ? 0 : 1;

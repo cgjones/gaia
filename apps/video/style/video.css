@@ -1,6 +1,5 @@
 html, body {
   font-family: "MozTT", sans-serif;
-  height: 100%;
   margin: 0;
   padding: 0;
   font-size: 10px;
@@ -8,67 +7,62 @@ html, body {
 }
 
 ul {
+  background: url(images/background.png);
+  height: 45.9rem;
   padding: 0;
   margin: 0;
   height: 100%;
-  overflow-y: scroll;
-  background: -moz-linear-gradient(top, #222 0%,#000 100%);
-  background: linear-gradient(top, #222 0%,#000 100%);
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: linear-gradient(to bottom, #222 0%,#000 100%);
 }
 li {
-  margin: 0;
-  height: 120px;
-  width: 100%;
+  height: 12.1rem;
   overflow: hidden;
   position: relative;
   list-style-type: none;
-  padding-bottom: 1px;
+}
+li .inner {
+  height: 12rem;
+  margin: 0 1.9rem 0 0;
+  border-bottom: 1px solid;
+  border-color:rgba(255,255,255, 0.1);
 }
 .unwatched {
-  width: 2px;
+  background: url(images/unwatched.png) no-repeat;
   position: absolute;
-  top: 0px;
-  bottom: 0px;
-  background: #21a6b9;
+  bottom: 0;
+  width: 4px;
+  top: 0;
 }
-li img {
-  height: 120px;
-  width: 210px;
+li .img {
+  background-repeat: no-repeat;
+  background-position: center center;
+  background-size: cover;
+  height: 12rem;
+  width: 21rem;
   overflow: hidden;
-  position: absolute;
   left: 0;
   margin: 0;
   padding: 0;
 }
-li p {
-  display: block;
-  width: auto;
-  margin: 20px 10px 0 220px;
-  padding: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-li p.name {
-  color: #fff;
-  font-weight: bold;
-  font-size: 16px;
-}
-li p.time {
-  margin-top: 4px;
-  font-size: 16px;
-  color: #bbb;
-}
-li:last-child hr {
-  display: none;
-}
-li hr {
+li .details {
+  line-height: 1.6rem;
   position: absolute;
-  bottom: -5px;
-  left: 210px;
-  right: 20px;
-  height: 0px;
-  border: 0;
-  border-bottom: 1px solid rgba(150, 150, 150, 0.1);
+  margin: 1.6rem 0;
+  font-size: 1.4rem;
+  color: #fff;
+  width: 8rem;
+  height: 9.3rem;
+  top: 0;
+  right: 1.8rem;
+  visibility: hidden;
+}
+li .details[data-visible] {
+  visibility: visible;
+}
+li .after span:last-child {
+  color: #95a3a6;
 }
 
 /* fullscreen video player */
@@ -125,26 +119,40 @@ li hr {
  * the overlay text shows up more clearly
  */
 #overlay-content {
-  margin-top: 30%;
-  margin-left: 10%;
-  margin-right: 10%;
-  padding: 10%;
-  border: solid black 4px;
-  border-radius: 10px;
-  background-color: rgba(0, 0, 0, 0.6);
-  font-family: "MozTT", sans-serif;
+  background:
+  url(images/ui/pattern.png) repeat left top,
+  url(images/ui/gradient.png) no-repeat left top;
+  background-size: auto auto, 100% 100%;
+  /* We can't use shortand with background size because is not implemented yet:
+  https://bugzilla.mozilla.org/show_bug.cgi?id=570326; */
+  overflow: hidden;
+  position: absolute;
+  z-index: 100;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  font-family: "MozTT", Sans-serif;
+  font-size: 0;
+  /* Using font-size: 0; we avoid the unwanted visual space (about 3px)
+  created by white-spaces and break lines in the code betewen inline-block elements */
   color: #fff;
-  -moz-user-select: none;
+  padding: 110px 25px 0px 25px;
 }
 
 #overlay-title {
-  text-align: center;
-  font-weight: bold;
-  font-size: 26px;
+  font-weight: normal;
+  font-size: 1.9rem;
+  color: #fff;
+  margin: 0 5px -10px 5px;
 }
 
 #overlay-text {
-  font-size: 18px;
+  padding: 10px 5px 0 5px;
+  border-top: 1px solid #686868;	
+  font-weight: 300;
+  font-size: 2.5rem;
+  color: #ebebeb;
 }
 
 /* localization */
@@ -299,10 +307,10 @@ header .icon:after {
   width: 5.9rem;
   position: absolute;
   color: #A1AFB2;
-  font-size: 1.4rem;
   height: 100%;
   line-height: 4.6rem;
   text-align: center;
+  font-size: 1.4rem;
 }
 
 #duration-text {
@@ -365,6 +373,12 @@ header .icon:after {
   height: 4.5rem;
   margin: -1rem 0 0 -3.93rem;
   top: 1rem;
+}
+
+@media (width: 480px) {
+  li .details {
+    width: 24rem;
+  }
 }
 
 @media screen and (width: 320px) {

@@ -22,6 +22,8 @@ Evme.Utils = new function Evme_Utils() {
         };
     
     this.isKeyboardVisible = false;
+
+    this.EMPTY_IMAGE = "../../images/empty.gif";
     
     this.ICONS_FORMATS = {
         "Small": 10,
@@ -38,7 +40,19 @@ Evme.Utils = new function Evme_Utils() {
     };
     
     this.log = function log(message) {
-        dump("(" + (new Date().getTime()) + ") DOAT: " + message);
+        var t = new Date(),
+            h = t.getHours(),
+            m = t.getMinutes(),
+            s = t.getSeconds(),
+            ms = t.getMilliseconds();
+        
+        h < 10 && (h = '0' + h);
+        m < 10 && (m = '0' + m);
+        s < 10 && (s = '0' + s);
+        ms < 10 && (ms = '00' + ms) ||
+        ms < 100 && (ms = '0' + ms);
+        
+        dump("[" + [h, m, s, ms].join(':') + " EVME]: " + message);
     };
     
     this.l10n = function l10n(module, key, args) {
@@ -49,7 +63,7 @@ Evme.Utils = new function Evme_Utils() {
         
         if (args) {
             try {
-                attr += ' data-l10n-args="' + JSON.stringify(args) + '"';
+                attr += ' data-l10n-args="' + JSON.stringify(args).replace(/"/g, '&quot;') + '"';
             } catch(ex) {
                 
             }
@@ -70,6 +84,15 @@ Evme.Utils = new function Evme_Utils() {
             translation = text[currentLang] || text[firstLanguage] || '';
         
         return translation;
+    };
+    
+    this.shortcutIdToKey = function l10nShortcutKey(experienceId) {
+        var map = Evme.__config.shortcutIdsToL10nKeys || {};
+        return map[experienceId.toString()] || experienceId;
+    };
+    
+    this.uuid = function generateUUID() {
+        return Evme.uuid();
     };
     
     this.sendToOS = function sendToOS(type, data) {
@@ -112,9 +135,45 @@ Evme.Utils = new function Evme_Utils() {
     this.cloneObject = function cloneObject(obj) {
         return JSON.parse(JSON.stringify(obj));
     };
+    
+    // remove installed apps from clouds apps
+    this.dedupInstalledApps = function dedupInstalledApps(apps, installedApps) {
+      var dedupCloudAppsBy = [];
+      
+      // first construct the data to filter by (an array of objects)
+      // currently only the URL is relevant
+      for (var i=0, appData; appData=installedApps[i++];) {
+        dedupCloudAppsBy.push({
+          'favUrl': appData.favUrl,
+          'appUrl': appData.favUrl
+        });
+      }
+      
+      return self.dedup(apps, dedupCloudAppsBy);
+    };
+    
+    // remove from arrayOrigin according to rulesToRemove
+    // both arguments are arrays of objects
+    this.dedup = function dedup(arrayOrigin, rulesToRemove) {
+      for (var i=0,item; item=arrayOrigin[i++];) {
+        for (var j=0,rule; rule=rulesToRemove[j++];) {
+          for (var property in rule) {
+            // if one of the conditions was met,
+            // remove the item and continue to next item
+            if (item[property] === rule[property]) {
+              arrayOrigin.splice(i-1, 1);
+              j = rulesToRemove.length;
+              break;
+            }
+          }
+        }
+      }
+      
+      return arrayOrigin;
+    };
 
     this.getRoundIcon = function getRoundIcon(imageSrc, callback) {
-        var size = Evme.Utils.sendToOS(Evme.Utils.OSMessages.GET_ICON_SIZE) - 2,
+        var size = self.sendToOS(self.OSMessages.GET_ICON_SIZE) - 2,
             radius = size/2,
             img = new Image();
         
@@ -147,6 +206,9 @@ Evme.Utils = new function Evme_Utils() {
         if (!image || typeof image !== "object") {
             return image;
         }
+        if (self.isBlob(image)) {
+            return self.EMPTY_IMAGE;
+        }
         if (!image.MIMEType || image.data.length < 10) {
             return null;
         }
@@ -155,12 +217,33 @@ Evme.Utils = new function Evme_Utils() {
     };
 
     this.getIconGroup = function getIconGroup() {
-        return Evme.Utils.cloneObject(Evme.__config.iconsGroupSettings);
+        return self.cloneObject(Evme.__config.iconsGroupSettings);
     };
 
     this.getIconsFormat = function getIconsFormat() {
         return iconsFormat || _getIconsFormat();
     };
+
+    this.isBlob = function isBlob(arg) {
+        return arg instanceof Blob;
+    };
+
+    this.blobToDataURI = function blobToDataURI(blob, cbSuccess, cbError) {
+        if (!self.isBlob(blob)) {
+            cbError && cbError();
+            return;
+        }
+
+        var reader = new FileReader();
+        reader.onload = function() {
+            cbSuccess(reader.result);
+        };
+        reader.onerror = function() {
+            cbError && cbError();
+        };
+
+        reader.readAsDataURL(blob);
+    }
 
     this.setKeyboardVisibility = function setKeyboardVisibility(value){
     	if (self.isKeyboardVisible === value) return;
@@ -179,7 +262,7 @@ Evme.Utils = new function Evme_Utils() {
     };
 
     this.isOnline = function isOnline(callback) {
-        Connection.online(callback);
+       Connection.online(callback);
     };
 
     this.getUrlParam = function getUrlParam(key) {
@@ -267,16 +350,16 @@ Evme.Utils = new function Evme_Utils() {
 
             var docFrag = document.createDocumentFragment();
             for (var i=0; i<apps.length; i++) {
-                var app = new Evme.App(apps[i], numAppsOffset+i, isMore, self);
-                var id = apps[i].id;
-                var icon = app.getIcon();
-
+                var appData = apps[i],
+                    app = new Evme.App(appData, numAppsOffset+i, isMore, self),
+                    id = appData.id,
+                    icon = app.getIcon();
+                
                 icon = Evme.IconManager.parse(id, icon, iconsFormat);
                 app.setIcon(icon);
                 
                 if (Evme.Utils.isKeyboardVisible && (isMore || i<Math.max(apps.length/2, 8))) {
-                    var elApp = app.draw();
-                    docFrag.appendChild(elApp);
+                    docFrag.appendChild(app.draw());
                 } else {
                     doLater.push(app);
                 }
@@ -290,9 +373,9 @@ Evme.Utils = new function Evme_Utils() {
                     iconsResult["cached"].push(icon);
                 }
 
-                appsList[id] = appsList;
+                appsList[''+id] = app;
 
-                if (apps[i].installed) {
+                if (appData.installed) {
                     hasInstalled = true;
                 }
             }
@@ -306,9 +389,8 @@ Evme.Utils = new function Evme_Utils() {
             if (doLater.length > 0) {
                 timeoutAppsToDrawLater = window.setTimeout(function onTimeout(){
                     var docFrag = document.createDocumentFragment();
-                    for (var i=0; i<doLater.length; i++) {
-                        var elApp = doLater[i].draw();
-                        docFrag.appendChild(elApp);
+                    for (var i=0,app; app=doLater[i++];) {
+                        docFrag.appendChild(app.draw());
                     }
                     elList.appendChild(docFrag);
                     

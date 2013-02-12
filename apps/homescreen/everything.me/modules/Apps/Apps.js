@@ -159,7 +159,7 @@ Evme.Apps = new function Evme_Apps() {
     };
     
     this.addInstalledSeparator = function addInstalledSeparator() {
-        elList.appendChild(Evme.$create('li', {'class': "installed-separator"}));
+        elList.appendChild(Evme.$create('li', {'class': 'installed-separator'}));
     };
     
     this.disableScroll = function disableScroll() {
@@ -602,11 +602,11 @@ Evme.App = function Evme_App(__cfg, __index, __isMore, parent) {
         
     this.init = function init(_cfg) {
         cfg = normalize(_cfg);
-        
+
         // generate id if there was none
         if (!cfg.id) {
             hadID = false;
-            cfg.id = Math.round(Math.random()*1221221) + 1;
+            cfg.id = 'app-' + Evme.Utils.uuid();
         }
         
         // fill in default icon
@@ -615,6 +615,10 @@ Evme.App = function Evme_App(__cfg, __index, __isMore, parent) {
             cfg.icon = Evme.Apps.getDefaultIcon();
         }
         
+    };
+    
+    this.isExternal = function isExternal() {
+        return cfg.isWeblink;
     };
     
     this.draw = function draw(_cfg) {
@@ -627,9 +631,7 @@ Evme.App = function Evme_App(__cfg, __index, __isMore, parent) {
         el = Evme.$create('li', {'class': "new", 'id': "app_" + cfg.id});
         self.update();
         
-        if (cfg.installed) {
-            el.classList.add("installed");
-        }
+        el.classList.add(cfg.installed ? 'installed' : 'cloud');
         
         if ("ontouchstart" in window) {
             el.addEventListener("touchstart", touchstart);
@@ -652,6 +654,10 @@ Evme.App = function Evme_App(__cfg, __index, __isMore, parent) {
                     '<span class="thumb" style="background-image: url(\'' + icon + '\');"></span>' + 
                     '<b>' + cfg.name + '</b>' +
                 '</div>';
+    };
+
+    this.getCurrentHtml = function getCurrentHTML() {
+        return el.innerHTML;
     };
     
     this.goTo = function goTo() {
@@ -679,6 +685,11 @@ Evme.App = function Evme_App(__cfg, __index, __isMore, parent) {
         }
         if (el) {
             el.innerHTML = self.getHtml();
+
+            Evme.Utils.blobToDataURI(cfg.icon, function(result) {
+                var iconEl = el.querySelector(".thumb");
+                iconEl.style.backgroundImage = 'url(\''+result+'\')';
+            });
         }
     };
 
@@ -716,6 +727,40 @@ Evme.App = function Evme_App(__cfg, __index, __isMore, parent) {
     
     this.getCfg = function getCfg() {
         return cfg;
+    };
+    
+    this.getPositionOnGrid = function getPositionOnGrid() {
+        var pos = {
+                'row': -1,
+                'col': -1,
+                'rows': -1,
+                'cols': -1
+            },
+            elParent = el.parentNode;
+            
+        if (elParent) {
+            var bounds = el.getBoundingClientRect(),
+                parentBounds = elParent.getBoundingClientRect(),
+                seperatorEl = elParent.querySelector('.installed-separator'),
+                // if there's a seprator, it shall be the top bound for cloud apps
+                topBound= (!cfg.installed && seperatorEl && seperatorEl.getBoundingClientRect() || parentBounds).top,
+                width = bounds.width,
+                height = bounds.height,
+                left = bounds.left - parentBounds.left,
+                top = bounds.top - topBound,
+                
+                elParentWidth = elParent.offsetWidth,
+                // number of apps of the same type
+                numberOfApps = elParent.querySelectorAll('.'+(cfg.installed ? 'installed' : 'cloud')).length;
+            
+            
+            pos.col = Math.floor(left / width);
+            pos.row = Math.floor(top / height);
+            pos.cols = Math.round(elParentWidth / width)
+            pos.rows = totalRows = Math.ceil(numberOfApps / pos.cols);
+        }
+        
+        return pos;
     };
     
     this.setIcon = function setIcon(icon, bRedraw) {

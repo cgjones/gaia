@@ -11,12 +11,17 @@ var Settings = (function() {
 
   'use strict';
 
-  var costcontrol, vmanager, autosettings;
+  var costcontrol, vmanager, autosettings, initialized;
   var plantypeSelector, phoneActivityTitle, phoneActivitySettings;
   var balanceTitle, balanceSettings, reportsTitle;
   function configureUI() {
     CostControl.getInstance(function _onCostControl(instance) {
       costcontrol = instance;
+
+      // Debug options
+      if (DEBUGGING) {
+        loadDeveloperAids();
+      }
 
       // HTML entities
       plantypeSelector = document.getElementById('plantype-settings');
@@ -33,6 +38,7 @@ var Settings = (function() {
       AutoSettings.addType('data-limit', dataLimitConfigurer);
       AutoSettings.initialize(ConfigManager, vmanager, '#settings-view');
       configureResets();
+      addDoneConstrains();
 
       // Update layout when changing plantype
       ConfigManager.observe('plantype', updateUI, true);
@@ -65,8 +71,28 @@ var Settings = (function() {
       ConfigManager.observe('resetTime', _updateNextReset, true);
       ConfigManager.observe('trackingPeriod', _updateNextReset, true);
 
+      initialized = true;
+
       updateUI();
     });
+  }
+
+  // Loads extra HTML useful for debugging
+  function loadDeveloperAids() {
+    var xhr = new XMLHttpRequest();
+    xhr.overrideMimeType('text/plain');
+    xhr.open('GET', '/debug.html', false);
+    xhr.send();
+
+    if (xhr.status === 200) {
+      var src = document.createElement('DIV');
+      src.innerHTML = xhr.responseText;
+      var reference = document.getElementById('plantype-settings');
+      var parent = reference.parentNode;
+      [].forEach.call(src.childNodes, function(node) {
+        reference = parent.insertBefore(node, reference.nextSibling);
+      });
+    }
   }
 
   // Configure reset dialogs for telephony and data usage
@@ -91,8 +117,9 @@ var Settings = (function() {
     ok.addEventListener('click', function _onAcceptReset() {
 
       // Reset data usage, take in count spent offsets to fix the charts
-      if (mode === 'data-usage')
+      if (mode === 'data-usage') {
         resetData();
+      }
 
       // Reset telephony counters
       else if (mode === 'telephony')
@@ -109,14 +136,37 @@ var Settings = (function() {
     });
   }
 
+  // Add particular constrains to the "Done" button
+  function addDoneConstrains() {
+    var lowLimit = document.getElementById('low-limit');
+    lowLimit.addEventListener('click', checkSettings);
+    var lowLimitInput = document.getElementById('low-limit-input');
+    lowLimitInput.addEventListener('input', checkSettings);
+  }
+
+  // Check settings and enable / disable done button
+  function checkSettings() {
+    var closeSettings = document.getElementById('close-settings');
+    var lowLimit = document.getElementById('low-limit');
+    var lowLimitInput = document.getElementById('low-limit-input');
+    var lowLimitError = currentMode === 'PREPAID' && lowLimit.checked &&
+                        lowLimitInput.value.trim() === '';
+
+    lowLimitInput.classList[lowLimitError ? 'add' : 'remove']('error');
+    closeSettings.disabled = lowLimitError;
+  }
+
   window.addEventListener('localized', function _onLocalize() {
-    updateUI();
+    if (initialized) {
+      updateUI();
+    }
   });
 
   var currentMode;
   function updateUI() {
-
     ConfigManager.requestAll(function _onInfo(configuration, settings) {
+      // L10n
+      localizeWeekdaySelector(document.getElementById('selectdialog-weekday'));
 
       // Layout
       var mode = costcontrol.getApplicationMode(settings);
@@ -151,6 +201,8 @@ var Settings = (function() {
                           settings.lastTelephonyReset);
           break;
       }
+
+      checkSettings();
     });
   }
 
@@ -187,7 +239,7 @@ var Settings = (function() {
     var calltimeSpan = document.getElementById('calltime');
     var smscountSpan = document.getElementById('smscount');
     calltimeSpan.innerHTML = _('magnitude', {
-      value: Math.ceil(activity.calltime / 60000),
+      value: computeTelephonyMinutes(activity),
       unit: 'min.'
     });
     smscountSpan.innerHTML = _('magnitude', {

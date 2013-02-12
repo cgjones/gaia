@@ -85,6 +85,17 @@ var CardsView = (function() {
     return iconPath;
   }
 
+  function escapeHTML(str, escapeQuotes) {
+    var stringHTML = str;
+    stringHTML = stringHTML.replace(/\</g, '&#60;');
+    stringHTML = stringHTML.replace(/(\r\n|\n|\r)/gm, '<br/>');
+    stringHTML = stringHTML.replace(/\s\s/g, ' &nbsp;');
+
+    if (escapeQuotes)
+      return stringHTML.replace(/"/g, '&quot;').replace(/'/g, '&#x27;');
+    return stringHTML;
+  }
+
   // Build and display the card switcher overlay
   // Note that we rebuild the switcher each time we need it rather
   // than trying to keep it in sync with app launches.  Performance is
@@ -173,7 +184,7 @@ var CardsView = (function() {
     }
 
     // Make sure we're in portrait mode
-    screen.mozLockOrientation('portrait');
+    screen.mozLockOrientation('portrait-primary');
 
     // If there is a displayed app, take keyboard focus away
     if (displayedApp)
@@ -211,7 +222,7 @@ var CardsView = (function() {
       title.textContent = app.name;
       card.appendChild(title);
 
-      var frameForScreenshot = app.frame;
+      var frameForScreenshot = app.iframe;
 
       if (PopupManager.getPopupFromOrigin(origin)) {
         var popupFrame = PopupManager.getPopupFromOrigin(origin);
@@ -222,11 +233,11 @@ var CardsView = (function() {
           PopupManager.getOpenedOriginFromOpener(origin);
         card.appendChild(subtitle);
         card.classList.add('popup');
-      } else if (getOffOrigin(app.frame.dataset.url ?
-            app.frame.dataset.url : app.frame.src, origin)) {
+      } else if (getOffOrigin(app.iframe.dataset.url ?
+            app.iframe.dataset.url : app.iframe.src, origin)) {
         var subtitle = document.createElement('p');
-        subtitle.textContent = getOffOrigin(app.frame.dataset.url ?
-            app.frame.dataset.url : app.frame.src, origin);
+        subtitle.textContent = getOffOrigin(app.iframe.dataset.url ?
+            app.iframe.dataset.url : app.iframe.src, origin);
         card.appendChild(subtitle);
       }
 
@@ -237,10 +248,14 @@ var CardsView = (function() {
         header.setAttribute('role', 'region');
         header.classList.add('skin-organic');
         header.innerHTML = '<header><button><span class="icon icon-close">';
-        header.innerHTML += '</span></button><h1>' + popupFrame.name;
+        header.innerHTML += '</span></button><h1>' + escapeHTML(popupFrame.name, true);
         header.innerHTML += '</h1></header>';
         card.appendChild(header);
         card.classList.add('trustedui');
+      } else if (attentionScreenApps.indexOf(origin) == -1) {
+        var closeButton = document.createElement('div');
+        closeButton.classList.add('close-card');
+        card.appendChild(closeButton);
       }
 
       cardsList.appendChild(card);
@@ -264,11 +279,34 @@ var CardsView = (function() {
     }
   }
 
-  function runApp() {
+  function runApp(e) {
+    // Handle close events
+    if (e.target.classList.contains('close-card')) {
+      var element = e.target.parentNode;
+      cardsList.removeChild(element);
+      closeApp(element, true);
+      return;
+    }
+
     var origin = this.dataset.origin;
     alignCard(currentDisplayed, function cardAligned() {
       WindowManager.launch(origin);
     });
+  }
+
+  function closeApp(element, removeImmediately) {
+    // Stop the app itself
+    WindowManager.kill(element.dataset.origin);
+
+    // Fix for non selectable cards when we remove the last card
+    // Described in https://bugzilla.mozilla.org/show_bug.cgi?id=825293
+    if (cardsList.children.length === currentDisplayed) {
+      currentDisplayed--;
+    }
+
+    // If there are no cards left, then dismiss the task switcher.
+    if (!cardsList.children.length)
+      hideCardSwitcher(removeImmediately);
   }
 
   function getOriginObject(url) {
@@ -311,7 +349,7 @@ var CardsView = (function() {
 
   getOffOrigin.cache = {};
 
-  function hideCardSwitcher() {
+  function hideCardSwitcher(removeImmediately) {
     if (!cardSwitcherIsShown())
       return;
 
@@ -329,14 +367,19 @@ var CardsView = (function() {
     screenshotObjectURLs = [];
 
     // And remove all the cards from the document after the transition
-    cardsView.addEventListener('transitionend', function removeCards() {
+    function removeCards() {
       cardsView.removeEventListener('transitionend', removeCards);
       screenElement.classList.remove('cards-view');
 
       while (cardsList.firstElementChild) {
         cardsList.removeChild(cardsList.firstElementChild);
       }
-    });
+    }
+    if (removeImmediately) {
+      removeCards();
+    } else {
+      cardsView.addEventListener('transitionend', removeCards);
+    }
   }
 
   function cardSwitcherIsShown() {
@@ -468,8 +511,10 @@ var CardsView = (function() {
 
     if (SNAPPING_SCROLLING && !draggingCardUp && reorderedCard === null) {
       if (Math.abs(eventDetail.dx) > threshold) {
-        if (direction === 'left' &&
-            currentDisplayed <= cardsList.children.length) {
+        if (
+            direction === 'left' &&
+            currentDisplayed < cardsList.children.length - 1
+        ) {
           currentDisplayed++;
           alignCard(currentDisplayed);
         } else if (direction === 'right' && currentDisplayed > 0) {
@@ -514,12 +559,7 @@ var CardsView = (function() {
         // Remove the icon from the task list
         cardsList.removeChild(element);
 
-        // Stop the app itself
-        WindowManager.kill(element.dataset.origin);
-
-        // If there are no cards left, then dismiss the task switcher.
-        if (!cardsList.children.length)
-          hideCardSwitcher();
+        closeApp(element);
 
         return;
       } else {
@@ -617,6 +657,9 @@ var CardsView = (function() {
         break;
 
       case 'holdhome':
+        if (LockScreen.locked)
+          return;
+
         SleepMenu.hide();
         showCardSwitcher();
         break;
@@ -632,7 +675,8 @@ var CardsView = (function() {
     showCardSwitcher: showCardSwitcher,
     hideCardSwitcher: hideCardSwitcher,
     cardSwitcherIsShown: cardSwitcherIsShown,
-    handleEvent: cv_handleEvent
+    handleEvent: cv_handleEvent,
+    _escapeHTML: escapeHTML
   };
 })();
 

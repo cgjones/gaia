@@ -67,6 +67,10 @@ html, body {
   height: 3.5rem;
 }
 
+#nav-bar {
+  z-index: 1;
+}
+
 [role=navigation] button {
   width: calc((100% - 1rem) / 2);
   float: left;
@@ -130,22 +134,26 @@ html, body {
   border-top: solid 0.1rem #b7b7b7;
   border-bottom: solid 0.1rem #fff;
   position: absolute;
-  top: 6.5rem;
+  top: 5.5rem;
   left: 1.5rem;
   right: 1.5rem;
   z-index: 100;
 }
 
- .step-state:before {
+.step-state:before {
   content: "";
-  width: calc(100% / 6);
-  height: 0.6rem;
+  height: 0.3rem;
+  width: calc(100% / 7);
   position: absolute;
   top: 50%;
   left: 0;
-  margin-top: -0.3rem;
-  background: #00a5c6;
+  margin-top: -0.2rem;
+  background: #858585;
   transition: all 0.35s cubic-bezier(0.000, 1.000, 0.535, 1.110);
+}
+
+.less-steps.step-state:before {
+  width: calc(100% / 6) !important;
 }
 
 /* STATES */
@@ -171,6 +179,10 @@ html, body {
 
 .step-6.step-state:before {
   transform: translateX(500%);
+}
+
+.step-7.step-state:before {
+  transform: translateX(600%);
 }
 
 /*
@@ -199,45 +211,54 @@ html, body {
 /*
   Pin code screen
 */
+#unlock-sim-screen {
+  z-index: 2000;
+}
 
-#pincode-screen .pin_container {
+#unlock-sim-screen .unlock_container {
   height: calc(100% - 10rem);
 }
 
-#pincode-screen section header {
+#unlock-sim-screen section label {
   padding: 1.5rem 3rem 0.5rem 3rem;
   color: black;
   font-size: 1.5rem;
+  width: auto;
+  height: 2rem;
 }
 
-#pincode-screen .input-wrapper {
+#unlock-sim-screen .input-wrapper {
   padding: 0 1.5rem;
   position: relative;
 }
 
-#pincode-screen #pin-error {
+#unlock-sim-screen .info {
+  font-size: 1.5rem;
+  padding: 1rem 1.5rem;
+}
+
+#unlock-sim-screen .error {
   padding: 1rem 2rem;
   font-size: 1.5rem;
   color: red;
 }
 
-#pincode-screen #pin-input.onerror {
-  border-color: red;
+#unlock-sim-screen .onerror {
+  border: 0.1rem solid red;
 }
 
-#pincode-screen .input-wrapper input {
+#unlock-sim-screen .input-wrapper input {
   font-size: 2rem;
   padding-left: 1.5rem;
-  pointer-events: none;
 }
 
-#pincode-screen #fake-sim-pin {
+#unlock-sim-screen .fake-input {
   margin-top: -4rem;
   opacity: 0;
-  pointer-events: auto;
+
 }
 
-#pincode-screen input[type="number"] {
+#unlock-sim-screen input[type="number"] {
     -moz-box-sizing: border-box;
     display: block;
     overflow: hidden;
@@ -245,6 +266,11 @@ html, body {
     height: 4rem;
     resize: none;
     padding: 0 0.8rem;
+    pointer-events: auto;
+}
+
+#unlock-sim-screen input[type="password"] {
+  pointer-events: none;
 }
 
 /*
@@ -276,14 +302,14 @@ html, body {
   display: block;
   padding: 1.5rem 1.5rem 0.5rem 1.5rem ;
   font-size: 1.5rem;
-  text-transform: capitalize;
 }
 
 #configure_network_params form input {
   padding-left: 1.5rem;
 }
 
-.hidden {
+/* The hide class is needed by the custom_dialog.js library */
+.hidden, .hide {
   display: none !important;
 }
 
@@ -322,7 +348,7 @@ html, body {
 #finish-screen h1, #tutorialFinish h1 {
   margin: 0;
   color: white;
-  font-size: 4.1rem;
+  font-size: 3rem;
   padding: 4rem 0 0 0;
   font-weight: 200;
   line-height: 4rem;
@@ -331,7 +357,7 @@ html, body {
 #finish-screen h2, #tutorialFinish h2 {
   margin: 0;
   color: white;
-  font-size: 1.8rem;
+  font-size: 1.9rem;
   padding: .5rem 0 2rem 0;
   font-weight: 200;
   line-height: 2rem;
@@ -497,11 +523,82 @@ html, body {
 #import_contacts li {
   padding: 0 3.5rem;
 }
+
+#import_contacts li.importOption {
+  padding: 0 !important;
+  height: auto !important;
+  border-bottom: none;
+}
+
+#import_contacts #fb_import, #import_contacts #fb_after_import2 {
+  margin-top: 1rem;
+}
+
+/* Needed due to the .icon class which is overriding this property */
+#import_contacts button:active {
+  background-color: #008aaa !important;
+}
+
+#no-sim, #no-network, #fb_after_import2 p {
+  color: #5B5B5B;
+  font-size: 1.5rem;
+  line-height: 2rem;
+  margin: -0.2rem 0 0.6rem;
+  padding: 0;
+  white-space: normal;
+}
+
+
+#import_contacts ul:first-child li:last-child {
+  margin-bottom: 0;
+}
+
+/* Extending icon types*/
+#import_contacts [data-type="list"] li button.icon-fb:before {
+  background-image: url('images/import_fb.png');
+}
+
+/* Extending icon types*/
+#import_contacts [data-type="list"] li button.icon-sim:before {
+  background-image: url(/contacts/style/images/import_SIM.png);
+  background-size: 1.6rem;
+}
+
+#import_contacts li button.icon {
+  padding-left: 3rem;
+  text-indent: 1rem;
+}
+
+#import_contacts li button.icon:before {
+  right: auto;
+  left: 0.5rem;
+}
+
+#import_contacts article:first-child ul {
+  margin-top: 1.6rem;
+}
+
+
+#fb_after_import1 {
+  background: url('images/import_fb.png') center left no-repeat;
+}
+
+#statusMsg.ftu {
+  bottom: 6.5rem;
+  z-index: 0;
+  opacity: 0;
+}
+
+#statusMsg.ftu.bannerStart {
+  z-index: 2;
+  opacity: 1;
+}
+
+
 #wifi li {
   padding: 0 1.5rem;
 }
 
-#import_contacts li:after,
 #wifi li:after {
   content: "";
   transition: opacity 0.2s ease;
@@ -515,35 +612,8 @@ html, body {
   z-index: 0;
 }
 
-#import_contacts li:active:after,
 #wifi li:active:after {
   opacity: 0.6;
-}
-
-#import_contacts li.disabled {
-  pointer-events: none;
-}
-
-#import_contacts li.disabled p{
-    pointer-events: none;
-}
-
-#import_contacts li.disabled:after {
-  content: "";
-  background-color: #e6e6e6;
-  opacity: 0.7;
-}
-
-#import_contacts ul:first-child li:last-child {
-  margin-bottom: 0;
-}
-
-#sim-import-button {
-  background: url('images/import_sim.png') center left no-repeat;
-}
-
-#fb_import {
-  background: url('images/import_fb.png') center left no-repeat;
 }
 
 /*
@@ -625,6 +695,7 @@ html, body {
   padding: 1.5rem 3rem 0 3rem;
   width: calc(100% - 6rem);
   height: calc(100% - 3.5rem);
+  margin-top: 2rem;
 }
 
 #browser_privacy img {
@@ -638,9 +709,7 @@ html, body {
   font-size: 1.35rem;
   line-height: 1.8rem;
 }
-#browser_privacy p:first-child {
-  margin-top: 2rem;
-}
+
 
 #browser_privacy p a {
   margin-left: 0.3rem;
@@ -741,11 +810,17 @@ i.hack-first-child {
   background-image: -moz-image-rect(url(/shared/resources/branding/privacy_sprite.png), 0, 96, 32, 64);
 }
 
-/* no connection error dialog */
+#newsletter-form.hidden,
+#newsletter-success-screen,
+#invalid-email-error-dialog,
+#offline-newsletter-error-dialog,
 #offline-error-dialog {
   display: none;
 }
 
+#newsletter-success-screen.visible,
+#invalid-email-error-dialog.visible,
+#offline-newsletter-error-dialog.visible,
 #offline-error-dialog.visible {
   display: block;
 }
@@ -862,6 +937,7 @@ i.hack-first-child {
   background-image: -moz-image-rect(url(images/wifi_sprite.png), 0, 160, 32, 128) !important;
 }
 
+
 .icon {
   background-color: transparent !important;
   background-repeat: no-repeat !important;
@@ -926,8 +1002,5 @@ i.hack-first-child {
 
 #tutorial-screen .step-state:before {
   width: calc(100% / 5);
-  height: 0.3rem;
-  margin-top: -0.2rem;
   background: #FFFFFF;
 }
-

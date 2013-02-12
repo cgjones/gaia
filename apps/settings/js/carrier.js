@@ -173,30 +173,100 @@ var Carrier = (function newCarrier(window, document, undefined) {
     };
   }
 
-  // 'Data Roaming' message
-  var settings = Settings.mozSettings;
-  if (settings) {
-    var _ = window.navigator.mozL10n.get;
-    var dataRoamingSetting = 'ril.data.roaming_enabled';
+  function initDataConnectionAndRoamingWarnings() {
+    var settings = Settings.mozSettings;
 
-    var displayDataRoamingMessage = function(enabled) {
-      var messageID = 'dataRoaming-' + (enabled ? 'enabled' : 'disabled');
-      document.getElementById('dataRoaming-expl').textContent = _(messageID);
+    /*
+     * settingKey        : The key of the setting
+     * dialogID          : The ID of the warning dialog
+     * explanationItemID : The ID of the explanation item
+     */
+    var initWarnings =
+      function initWarnings(settingKey, dialogID, explanationItemID) {
+        if (settings) {
+          var _ = window.navigator.mozL10n.get;
+          var warningDialogEnabledKey = settingKey + '.warningDialog.enabled';
+          var explanationItem = document.getElementById(explanationItemID);
+
+          var getWarningEnabled = function(callback) {
+            window.asyncStorage.getItem(warningDialogEnabledKey,
+              function(warningEnabled) {
+                if (warningEnabled == null) {
+                  warningEnabled = true;
+                }
+                callback(warningEnabled);
+            });
+          };
+
+          var setState = function(state) {
+            var cset = {};
+            cset[settingKey] = !!state;
+            settings.createLock().set(cset);
+          };
+
+          var onSubmit = function() {
+            window.asyncStorage.setItem(warningDialogEnabledKey, false);
+            explanationItem.hidden = false;
+          };
+
+          var onReset = function() {
+            window.asyncStorage.setItem(warningDialogEnabledKey, true);
+            setState(false);
+          };
+
+          // register an observer to monitor setting changes
+          settings.addObserver(settingKey, function(event) {
+            getWarningEnabled(function gotWarningEnabled(warningEnabled) {
+              var enabled = event.settingValue;
+              if (warningEnabled) {
+                if (enabled) {
+                  openDialog(dialogID, onSubmit, onReset);
+                }
+              } else {
+                explanationItem.hidden = false;
+              }
+            });
+          });
+
+          // initialize the visibility of the warning message
+          getWarningEnabled(function gotWarningEnabled(warningEnabled) {
+            if (warningEnabled) {
+              var request = settings.createLock().get(settingKey);
+              request.onsuccess = function() {
+                var enabled = false;
+                if (request.result[settingKey] !== undefined) {
+                  enabled = request.result[settingKey];
+                }
+
+                if (enabled) {
+                  window.asyncStorage.setItem(warningDialogEnabledKey, false);
+                  explanationItem.hidden = false;
+                }
+              };
+            } else {
+              explanationItem.hidden = false;
+            }
+          });
+        } else {
+          explanationItem.hidden = true;
+        }
+      };
+
+    initWarnings('ril.data.enabled', 'carrier-dc-warning',
+      'dataConnection-expl');
+    initWarnings('ril.data.roaming_enabled', 'carrier-dr-warning',
+      'dataRoaming-expl');
+
+    // Turn off data roaming automatically when users turn off data connection
+    if (settings) {
+      settings.addObserver('ril.data.enabled', function(event) {
+        if (!event.settingValue) {
+          var cset = {};
+          cset['ril.data.roaming_enabled'] = false;
+          settings.createLock().set(cset);
+        }
+      });
     }
-
-    // register an observer to monitor setting changes
-    settings.addObserver(dataRoamingSetting, function(event) {
-      displayDataRoamingMessage(event.settingValue);
-    });
-
-    // get the initial setting value
-    var req = settings.createLock().get(dataRoamingSetting);
-    req.onsuccess = function roaming_getStatusSuccess() {
-      var enabled = req.result && req.result[dataRoamingSetting];
-      displayDataRoamingMessage(enabled);
-    };
-  } else {
-    document.getElementById('dataRoaming-expl').hidden = true;
   }
 
   // network operator selection: auto/manual
@@ -324,6 +394,8 @@ var Carrier = (function newCarrier(window, document, undefined) {
     init: function carrier_init() {
       Connectivity.updateCarrier(); // see connectivity.js
       updateSelectionMode();
+      initDataConnectionAndRoamingWarnings();
+
       // XXX this should be done later -- not during init()
       this.fillAPNList('data');
       this.fillAPNList('mms');
@@ -333,5 +405,5 @@ var Carrier = (function newCarrier(window, document, undefined) {
 })(this, document);
 
 // startup
-onLocalized(Carrier.init.bind(Carrier));
+navigator.mozL10n.ready(Carrier.init.bind(Carrier));
 

@@ -144,7 +144,7 @@ var Recents = {
 
       // All the scripts are now loaded
       if (scriptLoadCount === scripts.length) {
-        var headerSelector = '#recents-container h2';
+        var headerSelector = '#recents-container header';
         FixedHeader.init('#recents-container',
                          '#fixed-container', headerSelector);
 
@@ -230,7 +230,7 @@ var Recents = {
 
     // Setting up the SimplePhoneMatcher
     var conn = window.navigator.mozMobileConnection;
-    if (conn) {
+    if (conn && conn.voice && conn.voice.network) {
       SimplePhoneMatcher.mcc = conn.voice.network.mcc.toString();
     }
 
@@ -278,8 +278,9 @@ var Recents = {
       return;
     }
     var action = event.target.dataset.action;
-    var noMissedCallsSelector = '.log-item[data-type^=dialing],' +
-      '.log-item[data-type=incoming-connected]';
+    var noMissedCallsSelector = '.log-item[data-type^=dialing]' +
+      ':not(.collapsed), ' +
+      '.log-item[data-type=incoming-connected]:not(.collapsed)';
     var noMissedCallsItems = document.querySelectorAll(noMissedCallsSelector);
     var noMissedCallsLength = noMissedCallsItems.length;
     var i;
@@ -361,7 +362,7 @@ var Recents = {
     if (end > limit) {
       for (var i = limit; i < end; i++) {
         var visibleCallParentNode = visibleCalls[i].parentNode;
-        visibleCallParentNode.removeChild(visibleCalls[i]);
+        visibleCalls[i].classList.add('hide');
         // Remove the day header if no more entries.
         if (visibleCallParentNode.getElementsByTagName('*').length === 0) {
           visibleCallParentNode.parentNode.parentNode.
@@ -597,6 +598,8 @@ var Recents = {
     if (contactId) {
       src += '#view-contact-details?id=' + contactId;
       src += '&tel=' + phoneNumber;
+      // enable the function of receiving the messages posted from the iframe
+      src += '&back_to_previous_tab=1';
       var timestamp = new Date().getTime();
       contactsIframe.src = src + '&timestamp=' + timestamp;
       window.location.hash = '#contacts-view';
@@ -670,6 +673,7 @@ var Recents = {
         '</div>';
       navigator.mozL10n.translate(this.recentsContainer);
       this.recentsIconEdit.parentNode.setAttribute('aria-disabled', 'true');
+      this.allFilter.classList.add('selected');
       return;
     }
 
@@ -748,8 +752,15 @@ var Recents = {
         phoneNumber = logItem.dataset.num.trim(),
         count = logItem.dataset.count;
     if (contact !== null) {
-      primaryInfoMainNode.textContent = (contact.name && contact.name !== '') ?
-        contact.name : this._('unknown');
+      var primaryInfo = Utils.getPhoneNumberPrimaryInfo(
+        matchingTel, contact);
+      if (primaryInfo) {
+        primaryInfoMainNode.textContent = primaryInfo;
+      } else {
+        LazyL10n.get(function (_) {
+          primaryInfoMainNode.textContent = _('unknown');
+        });
+      }
       manyContactsNode.innerHTML = contactsWithSameNumber ?
         '&#160;' + this._('contactNameWithOthersSuffix',
           {n: contactsWithSameNumber}) : '';
@@ -767,7 +778,7 @@ var Recents = {
       logItem.classList.add('isContact');
       logItem.dataset['contactId'] = contact.id;
     } else {
-      contactPhoto.classList.add('unknownContact');
+      logItem.classList.remove('hasPhoto');
       delete logItem.dataset['contactId'];
       var isContact = logItem.classList.contains('isContact');
       if (isContact) {
@@ -846,7 +857,8 @@ var Recents = {
   },
 
   groupCalls: function re_groupCalls(olderCallEl, newerCallEl, count, inc) {
-    olderCallEl.parentNode.removeChild(olderCallEl);
+    olderCallEl.classList.add('hide');
+    olderCallEl.classList.add('collapsed');
     count += inc;
     var entryCountNode = newerCallEl.querySelector('.entry-count');
     entryCountNode.innerHTML = '&#160;(' + count + ')';

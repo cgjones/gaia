@@ -95,9 +95,8 @@ var CallScreen = {
   },
 
   hideKeypad: function cs_hideKeypad() {
-    KeypadManager.restorePhoneNumber();
+    KeypadManager.restorePhoneNumber('end', true);
     KeypadManager.restoreAdditionalContactInfo();
-    KeypadManager.formatPhoneNumber();
     this.body.classList.remove('showKeypad');
   },
 
@@ -176,7 +175,7 @@ var OnCallHandler = (function onCallHandler() {
 
   // Setting up the SimplePhoneMatcher
   var conn = window.navigator.mozMobileConnection;
-  if (conn) {
+  if (conn && conn.voice && conn.voice.network) {
     SimplePhoneMatcher.mcc = conn.voice.network.mcc.toString();
   }
 
@@ -191,14 +190,11 @@ var OnCallHandler = (function onCallHandler() {
   });
 
   var screenLock;
-  var cpuLock;
 
   /* === Setup === */
   function setup() {
     // Animating the screen in the viewport.
     toggleScreen();
-
-    cpuLock = navigator.requestWakeLock('cpu');
 
     if (telephony) {
       // Somehow the muted property appears to true after initialization.
@@ -258,7 +254,16 @@ var OnCallHandler = (function onCallHandler() {
       return;
     }
 
-    var node = CallScreen.calls.children[handledCalls.length];
+    var node = null;
+    // Find an available node for displaying the call
+    var children = CallScreen.calls.children;
+    for (var i = 0; i < children.length; i++) {
+      var n = children[i];
+      if (n.dataset.occupied === 'false') {
+        node = n;
+        break;
+      }
+    }
     var hc = new HandledCall(call, node);
     handledCalls.push(hc);
 
@@ -269,33 +274,7 @@ var OnCallHandler = (function onCallHandler() {
 
     if (handledCalls.length > 1) {
       // New incoming call, signaling the user.
-      // Waiting for the screen to be turned on before vibrating.
-      if (document.mozHidden) {
-        window.addEventListener('mozvisibilitychange', function waitOn() {
-          window.removeEventListener('mozvisibilitychange', waitOn);
-          if (activateVibration) {
-            navigator.vibrate([100, 100, 100]);
-          }
-        });
-      } else {
-        if (activateVibration) {
-          navigator.vibrate([100, 100, 100]);
-        }
-      }
-
-      LazyL10n.get(function localized(_) {
-        var number = (call.number.length ? call.number : _('unknown'));
-        Contacts.findByNumber(number, function lookupContact(contact) {
-          if (contact && contact.name) {
-            CallScreen.incomingNumber.textContent = contact.name;
-            return;
-          }
-
-          CallScreen.incomingNumber.textContent = number;
-        });
-      });
-
-      CallScreen.showIncoming();
+      handleCallWaiting(call);
     } else {
       if (window.location.hash === '#locked' &&
           (call.state == 'incoming')) {
@@ -325,7 +304,7 @@ var OnCallHandler = (function onCallHandler() {
         setTimeout(function nextTick() {
           if (remainingCall.call.state == 'incoming') {
             CallScreen.render('incoming');
-          };
+          }
         });
 
         return;
@@ -384,46 +363,57 @@ var OnCallHandler = (function onCallHandler() {
     });
   }
 
+  function handleCallWaiting(call) {
+    LazyL10n.get(function localized(_) {
+      var number = (call.number.length ? call.number : _('unknown'));
+      Contacts.findByNumber(number, function lookupContact(contact) {
+        if (contact && contact.name) {
+          CallScreen.incomingNumber.textContent = contact.name;
+          return;
+        }
+
+        CallScreen.incomingNumber.textContent = number;
+      });
+    });
+
+    CallScreen.showIncoming();
+
+    var vibrateInterval = window.setInterval(function vibrate() {
+      if ('vibrate' in navigator) {
+        navigator.vibrate([200]);
+      }
+    }, 2000);
+
+    call.addEventListener('statechange', function callStateChange() {
+      call.removeEventListener('statechange', callStateChange);
+      window.clearInterval(vibrateInterval);
+    });
+  }
+
   /* === Call Screen === */
   function toggleScreen() {
     displayed = !displayed;
     animating = true;
 
     var callScreen = CallScreen.screen;
-    callScreen.classList.remove('animate');
-    callScreen.classList.toggle('prerender');
+    callScreen.classList.toggle('displayed');
 
-    window.addEventListener('MozAfterPaint', function ch_finishAfterPaint() {
-      window.removeEventListener('MozAfterPaint', ch_finishAfterPaint);
+    callScreen.addEventListener('transitionend', function trWait() {
+      callScreen.removeEventListener('transitionend', trWait);
 
-      window.setTimeout(function cs_transitionNextLoop() {
-        callScreen.classList.add('animate');
-        callScreen.classList.toggle('displayed');
-        callScreen.classList.toggle('prerender');
+      animating = false;
 
-        callScreen.addEventListener('transitionend', function trWait() {
-          callScreen.removeEventListener('transitionend', trWait);
-
-          animating = false;
-
-          // We did animate the call screen off the viewport
-          // now closing the window.
-          if (!displayed) {
-            closeWindow();
-          }
-        });
-      });
+      // We did animate the call screen off the viewport
+      // now closing the window.
+      if (!displayed) {
+        closeWindow();
+      }
     });
   }
 
   function exitCallScreen(animate) {
     if (closing) {
       return;
-    }
-
-    if (cpuLock) {
-      cpuLock.unlock();
-      cpuLock = null;
     }
 
     closing = true;
@@ -489,7 +479,7 @@ var OnCallHandler = (function onCallHandler() {
   function handleHSCommand(message) {
     // We will receive the message for button released,
     // we will ignore it
-    if (message == 'headset-button-release') {
+    if (message != 'headset-button-press') {
       return;
     }
 

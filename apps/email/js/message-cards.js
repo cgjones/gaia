@@ -21,7 +21,7 @@ const SCROLL_MAX_RETENTION_SCREENS = 7;
  * @param message the message object
  */
 function displaySubject(subjectNode, message) {
-  var subject = message.subject.trim();
+  var subject = message.subject && message.subject.trim();
   if (subject) {
     subjectNode.textContent = subject;
     subjectNode.classList.remove('msg-no-subject');
@@ -101,6 +101,11 @@ function MessageListCard(domNode, mode, args) {
     .addEventListener('click', this.onGetMoreMessages.bind(this), false);
   this.progressNode =
     domNode.getElementsByClassName('msg-list-progress')[0];
+  // The active timeout that will cause us to set the progressbar to
+  // indeterminate 'candybar' state when it fires.  Reset every time a new
+  // progress notification is received.
+  this.progressCandybarTimer = null;
+  this._bound_onCandybarTimeout = this.onCandybarTimeout.bind(this);
 
   // - header buttons: non-edit mode
   domNode.getElementsByClassName('msg-folder-list-btn')[0]
@@ -166,6 +171,16 @@ function MessageListCard(domNode, mode, args) {
     this.showSearch(args.folder, args.phrase || '', args.filter || 'all');
 }
 MessageListCard.prototype = {
+  /**
+   * How many milliseconds since our last progress update event before we put
+   * the progressbar in the indeterminate "candybar" state?
+   *
+   * This value is currently arbitrarily chosen by asuth to try and avoid us
+   * flipping back and forth from non-candybar state to candybar state
+   * frequently.  This should be updated with UX or VD feedback.
+   */
+  PROGRESS_CANDYBAR_TIMEOUT_MS: 2000,
+
   postInsert: function() {
     this._hideSearchBoxByScrolling();
 
@@ -398,25 +413,44 @@ MessageListCard.prototype = {
   },
 
   onStatusChange: function(newStatus) {
-    if (newStatus === 'synchronizing') {
-      this.syncingNode.classList.remove('collapsed');
-      this.syncMoreNode.classList.add('collapsed');
+    switch (newStatus) {
+      case 'synchronizing':
+      case 'syncblocked':
+        this.syncingNode.classList.remove('collapsed');
+        this.syncMoreNode.classList.add('collapsed');
+        this.hideEmptyLayout();
 
-      this.progressNode.value = this.messagesSlice ?
-                                this.messagesSlice.syncProgress : 0;
-      this.progressNode.classList.remove('hidden');
-    }
-    // (cover both 'synced' and 'syncfailed')
-    else {
-      this.syncingNode.classList.add('collapsed');
-      this.progressNode.classList.add('hidden');
-    }
+        this.progressNode.value = this.messagesSlice ?
+                                  this.messagesSlice.syncProgress : 0;
+        this.progressNode.classList.remove('pack-activity');
+        this.progressNode.classList.remove('hidden');
+        if (this.progressCandybarTimer)
+          window.clearTimeout(this.progressCandybarTimer);
+        this.progressCandybarTimer =
+          window.setTimeout(this._bound_onCandybarTimeout,
+                            this.PROGRESS_CANDYBAR_TIMEOUT_MS);
+        break;
+      case 'syncfailed':
+        // If there was a problem talking to the server, notify the user and
+        // provide a means to attempt to talk to the server again.  We have made
+        // onRefresh pretty clever, so it can do all the legwork on
+        // accomplishing this goal.
+        Toaster.logRetryable(newStatus, this.onRefresh.bind(this));
 
-    // If there was a problem talking to the server, notify the user and provide
-    // a means to attempt to talk to the server again.  We have made onRefresh
-    // pretty clever, so it can do all the legwork on accomplishing this goal.
-    if (newStatus === 'syncfailed')
-      Toaster.logRetryable(newStatus, this.onRefresh.bind(this));
+        // Fall through...
+      case 'synced':
+        this.syncingNode.classList.add('collapsed');
+        this.progressNode.classList.add('hidden');
+        if (this.progressCandybarTimer) {
+          window.clearTimeout(this.progressCandybarTimer);
+          this.progressCandybarTimer = null;
+        }
+        break;
+    }
+  },
+
+  onCandybarTimeout: function() {
+    this.progressNode.classList.add('pack-activity');
   },
 
   showEmptyLayout: function() {
@@ -765,14 +799,24 @@ MessageListCard.prototype = {
   onDeleteMessages: function() {
     // TODO: Batch delete back-end mail api is not ready for IMAP now.
     //       Please verify this function under IMAP when api completed.
-    var req = confirm(mozL10n.get('message-multiedit-delete-confirm',
-                      { n: this.selectedMessages.length }));
-    if (!req) {
-      return;
-    }
-    var op = MailAPI.deleteMessages(this.selectedMessages);
-    Toaster.logMutation(op);
-    this.setEditMode(false);
+    var dialog = msgNodes['delete-confirm'].cloneNode(true);
+    var content = dialog.getElementsByTagName('p')[0];
+    content.textContent = mozL10n.get('message-multiedit-delete-confirm',
+                                      { n: this.selectedMessages.length });
+    ConfirmDialog.show(dialog,
+      { // Confirm
+        id: 'msg-delete-ok',
+        handler: function() {
+          var op = MailAPI.deleteMessages(this.selectedMessages);
+          Toaster.logMutation(op);
+          this.setEditMode(false);
+        }.bind(this)
+      },
+      { // Cancel
+        id: 'msg-delete-cancel',
+        handler: null
+      }
+    );
   },
 
   onMoveMessages: function() {
@@ -887,7 +931,9 @@ MessageReaderCard.prototype = {
   postInsert: function() {
     // iframes need to be linked into the DOM tree before their contentDocument
     // can be instantiated.
-    this.buildBodyDom(this.domNode);
+    App.loader.load('js/iframe-shims.js', function() {
+      this.buildBodyDom(this.domNode);
+    }.bind(this));
   },
 
   onBack: function(event) {
@@ -919,13 +965,21 @@ MessageReaderCard.prototype = {
   },
 
   onDelete: function() {
-    var req = confirm(mozL10n.get('message-edit-delete-confirm'));
-    if (!req) {
-      return;
-    }
-    Cards.removeCardAndSuccessors(this.domNode, 'animate');
-    var op = this.header.deleteMessage();
-    Toaster.logMutation(op, true);
+    var dialog = msgNodes['delete-confirm'].cloneNode(true);
+    ConfirmDialog.show(dialog,
+      { // Confirm
+        id: 'msg-delete-ok',
+        handler: function() {
+          var op = this.header.deleteMessage();
+          Toaster.logMutation(op, true);
+          Cards.removeCardAndSuccessors(this.domNode, 'animate');
+        }.bind(this)
+      },
+      { // Cancel
+        id: 'msg-delete-cancel',
+        handler: null
+      }
+    );
   },
 
   onToggleStar: function() {
@@ -941,9 +995,9 @@ MessageReaderCard.prototype = {
   onMove: function() {
     //TODO: Please verify move functionality after api landed.
     Cards.folderSelector(function(folder) {
-      Cards.removeCardAndSuccessors(this.domNode, 'animate');
       var op = this.header.moveMessage(folder);
       Toaster.logMutation(op, true);
+      Cards.removeCardAndSuccessors(this.domNode, 'animate');
     }.bind(this));
   },
 
@@ -961,40 +1015,41 @@ MessageReaderCard.prototype = {
 
   onPeepClick: function(target) {
     var contents = msgNodes['contact-menu'].cloneNode(true);
-    Cards.popupMenuForNode(contents, target, ['menu-item'],
-      function(clickedNode) {
-        if (!clickedNode)
-          return;
-
-        switch (clickedNode.classList[0]) {
-          // All of these mutations are immediately reflected, easily observed
-          // and easily undone, so we don't show them as toaster actions.
-          case 'msg-contact-menu-view':
-            try {
-              //TODO: Provide correct params for contact activiy handler.
-              var email = target.querySelector('.msg-peep-address').textContent;
-              var activity = new MozActivity({
-                name: 'new',
-                data: {
-                  type: 'webcontacts/contact',
-                  params: {
-                    'email': email
-                  }
+    var email = target.getAttribute('data-email');
+    contents.getElementsByTagName('header')[0].textContent = email;
+    document.body.appendChild(contents);
+    var formSubmit = function(evt) {
+      document.body.removeChild(contents);
+      switch (evt.explicitOriginalTarget.className) {
+        // All of these mutations are immediately reflected, easily observed
+        // and easily undone, so we don't show them as toaster actions.
+        case 'msg-contact-menu-view':
+          try {
+            //TODO: Provide correct params for contact activiy handler.
+            var activity = new MozActivity({
+              name: 'new',
+              data: {
+                type: 'webcontacts/contact',
+                params: {
+                  'email': email
                 }
-              });
-            } catch (e) {
-              console.log('WebActivities unavailable? : ' + e);
-            }
-            break;
-          case 'msg-contact-menu-reply':
-            //TODO: We need to enter compose view with specific email address.
-            var composer = this.header.replyToMessage(null, function() {
-              Cards.pushCard('compose', 'default', 'animate',
-                             { composer: composer });
+              }
             });
-            break;
-        }
-      }.bind(this));
+          } catch (e) {
+            console.log('WebActivities unavailable? : ' + e);
+          }
+          break;
+        case 'msg-contact-menu-reply':
+          //TODO: We need to enter compose view with specific email address.
+          var composer = this.header.replyToMessage(null, function() {
+            Cards.pushCard('compose', 'default', 'animate',
+                           { composer: composer });
+          });
+          break;
+      }
+      return false;
+    }.bind(this);
+    contents.addEventListener('submit', formSubmit);
   },
 
   onLoadBarClick: function(event) {
@@ -1149,14 +1204,34 @@ MessageReaderCard.prototype = {
       // Because we can avoid having to do multiple selector lookups, we just
       // mutate the template in-place...
       var peepTemplate = msgNodes['peep-bubble'],
-          nameTemplate =
-            peepTemplate.getElementsByClassName('msg-peep-name')[0],
-          addressTemplate =
-            peepTemplate.getElementsByClassName('msg-peep-address')[0];
+          contentTemplate =
+            peepTemplate.getElementsByClassName('msg-peep-content')[0];
+
+      // If the address field is "From", We only show the address and display
+      // name in the message header.
+      if (lineClass == 'msg-envelope-from-line') {
+        var peep = peeps[0];
+        // TODO: Display peep name if the address is not exist.
+        //       Do we nee to deal with that scenario?
+        contentTemplate.textContent = peep.address || peep.name;
+        peepTemplate.setAttribute('data-email', peep.address);
+        if (peep.address) {
+          contentTemplate.classList.add('msg-peep-address');
+        }
+        lineNode.appendChild(peepTemplate.cloneNode(true));
+        domNode.getElementsByClassName('msg-reader-header-label')[0]
+          .textContent = peep.name || peep.address;
+        return;
+      }
       for (var i = 0; i < peeps.length; i++) {
         var peep = peeps[i];
-        nameTemplate.textContent = peep.name || '';
-        addressTemplate.textContent = peep.address;
+        contentTemplate.textContent = peep.name || peep.address;
+        peepTemplate.setAttribute('data-email', peep.address);
+        if (!peep.name && peep.address) {
+          contentTemplate.classList.add('msg-peep-address');
+        } else {
+          contentTemplate.classList.remove('msg-peep-address');
+        }
         lineNode.appendChild(peepTemplate.cloneNode(true));
       }
     }
@@ -1170,8 +1245,6 @@ MessageReaderCard.prototype = {
     dateNode.dataset.time = header.date.valueOf();
     dateNode.textContent = prettyDate(header.date);
 
-    displaySubject(domNode.getElementsByClassName('msg-reader-header-label')[0],
-                   header);
     displaySubject(domNode.getElementsByClassName('msg-envelope-subject')[0],
                    header);
 

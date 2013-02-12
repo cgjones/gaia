@@ -3,6 +3,12 @@
 var Bookmark = function Bookmark(params) {
   this.removable = true;
 
+  if ('iconable' in params) {
+    this.iconable = params.iconable;
+  } else {
+    this.iconable = true;
+  }
+
   this.isBookmark = true;
   this.url = this.bookmarkURL = this.origin = params.bookmarkURL;
 
@@ -13,6 +19,8 @@ var Bookmark = function Bookmark(params) {
     },
     default_locale: 'en-US'
   };
+
+  this.useAsyncPanZoom = 'useAsyncPanZoom' in params && params.useAsyncPanZoom;
 };
 
 Bookmark.prototype = {
@@ -20,7 +28,8 @@ Bookmark.prototype = {
     var features = {
       name: this.manifest.name.replace(/\s/g, '&nbsp;'),
       icon: this.manifest.icons['60'],
-      remote: true
+      remote: true,
+      useAsyncPanZoom: this.useAsyncPanZoom
     };
 
     // The third parameter is received in window_manager without whitespaces

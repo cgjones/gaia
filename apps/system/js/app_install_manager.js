@@ -42,6 +42,8 @@ var AppInstallManager = {
     window.addEventListener('applicationinstall',
       this.handleApplicationInstall.bind(this));
 
+    window.addEventListener('applicationuninstall',
+      this.handleApplicationUninstall.bind(this));
 
     this.installButton.onclick = this.handleInstall.bind(this);
     this.cancelButton.onclick = this.showInstallCancelDialog.bind(this);
@@ -75,6 +77,7 @@ var AppInstallManager = {
     var apps = e.detail.applications;
 
     Object.keys(apps)
+      .filter(function(key) { return apps[key].installState === 'pending'; })
       .map(function(key) { return apps[key]; })
       .forEach(this.prepareForDownload, this);
   },
@@ -88,6 +91,13 @@ var AppInstallManager = {
     }
 
     this.prepareForDownload(app);
+  },
+
+  handleApplicationUninstall: function ai_handleApplicationUninstall(e) {
+    var app = e.detail.application;
+
+    this.onDownloadStop(app);
+    this.onDownloadFinish(app);
   },
 
   handleAppInstallPrompt: function ai_handleInstallPrompt(detail) {
@@ -115,8 +125,8 @@ var AppInstallManager = {
     this.msg.textContent = msg;
 
     if (manifest.developer) {
-      this.authorName.textContent = manifest.developer.name;
-      this.authorUrl.textContent = manifest.developer.url;
+      this.authorName.textContent = manifest.developer.name || _('unknown');
+      this.authorUrl.textContent = manifest.developer.url || '';
     } else {
       this.authorName.textContent = _('unknown');
       this.authorUrl.textContent = '';

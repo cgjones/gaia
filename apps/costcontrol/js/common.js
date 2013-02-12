@@ -2,7 +2,7 @@
 'use strict';
 
 // Checks for a SIM change
-function checkSIMChange() {
+function checkSIMChange(callback) {
   asyncStorage.getItem('lastSIM', function _compareWithCurrent(lastSIM) {
     var currentSIM = window.navigator.mozMobileConnection.iccInfo.iccid;
     if (lastSIM !== currentSIM) {
@@ -10,10 +10,43 @@ function checkSIMChange() {
       MindGap.updateTagList(currentSIM);
     }
     ConfigManager.requestSettings(function _onSettings(settings) {
-      if (settings.nextReset)
-        setNextReset(settings.nextReset);
+      if (settings.nextReset) {
+        setNextReset(settings.nextReset, callback);
+        return;
+      }
+
+      if (callback) {
+        callback();
+      }
     });
   });
+}
+
+function checkDataUsageNotification(settings, usage, callback) {
+  var proxy = document.getElementById('message-handler').contentWindow;
+  var f = proxy ? proxy.checkDataUsageNotification :
+                  window.checkDataUsageNotification;
+  return f(settings, usage, callback);
+}
+
+// Waits for DOMContentLoaded and messagehandlerready, then call the callback
+function waitForDOMAndMessageHandler(window, callback) {
+  var remainingSteps = 2;
+  function checkReady(evt) {
+    debug(evt.type, 'event received!');
+    remainingSteps--;
+
+    // Once all events are received, execute the callback
+    if (!remainingSteps) {
+      window.removeEventListener('DOMContentLoaded', checkReady);
+      window.removeEventListener('messagehandlerready', checkReady);
+      debug('DOMContentLoaded and messagehandlerready received. Starting');
+      callback();
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', checkReady);
+  window.addEventListener('messagehandlerready', checkReady);
 }
 
 function addAlarmTimeout(type, delay) {
@@ -21,16 +54,16 @@ function addAlarmTimeout(type, delay) {
   return proxy.addAlarmTimeout(type, delay);
 }
 
-function setNextReset(when) {
+function setNextReset(when, callback) {
   var proxy = document.getElementById('message-handler');
-  return proxy ? proxy.contentWindow.setNextReset(when) : setNextReset(when);
+  return proxy ? proxy.contentWindow.setNextReset(when, callback) :
+                 window.setNextReset(when, callback);
 }
 
 // Next automatic reset date based on user preferences
-function updateNextReset(trackingPeriod, value) {
+function updateNextReset(trackingPeriod, value, callback) {
   if (trackingPeriod === 'never') {
-    setNextReset(null); // remove oldAlarm
-    debug('Automatic reset disabled');
+    setNextReset(null, callback); // remove any alarm
     return;
   }
 
@@ -44,8 +77,9 @@ function updateNextReset(trackingPeriod, value) {
     year = today.getFullYear();
     if (today.getDate() >= monthday) {
       month = (month + 1) % 12;
-      if (month === 0)
+      if (month === 0) {
         year++;
+      }
     }
     nextReset = new Date(year, month, monthday);
 
@@ -54,14 +88,16 @@ function updateNextReset(trackingPeriod, value) {
     var oneDay = 24 * 60 * 60 * 1000;
     var weekday = parseInt(value, 10);
     var daysToTarget = weekday - today.getDay();
-    if (daysToTarget <= 0)
+    if (daysToTarget <= 0) {
       daysToTarget = 7 + daysToTarget;
+    }
     nextReset = new Date();
     nextReset.setTime(nextReset.getTime() + oneDay * daysToTarget);
+    toMidnight(nextReset);
   }
 
   // remove oldAlarm and set the new one
-  setNextReset(nextReset);
+  setNextReset(nextReset, callback);
 }
 
 function resetData() {
@@ -75,36 +111,58 @@ function resetData() {
 
     // Get current mobile data
     var now = new Date();
-    var request = window.navigator.mozNetworkStats.getNetworkStats({
+    var mobileRequest = window.navigator.mozNetworkStats.getNetworkStats({
       start: now,
       end: now,
       connectionType: 'mobile'
     });
-    request.onsuccess = function _onMobileForToday() {
-      var data = request.result.data;
-      debug('Data length should be 1 and it is ' + data.length);
+    mobileRequest.onsuccess = function _onMobileForToday() {
+      var data = mobileRequest.result.data;
+      debug('Data length should be 1 and it is', data.length);
       var currentDataUsage = 0;
-      if (data[0].rxBytes)
+      if (data[0].rxBytes) {
         currentDataUsage += data[0].rxBytes;
-      if (data[0].txBytes)
+      }
+      if (data[0].txBytes) {
         currentDataUsage += data[0].txBytes;
+      }
 
       // Adds the fixing
       var tag = tags[tags.length - 1];
-      tag.fixing = currentDataUsage;
+      tag.fixing.push([now, currentDataUsage]);
 
       // Remove the previous ones
       for (var i = tags.length - 2; i >= 0; i--) {
         var ctag = tags[i];
-        if (ctag.sim === tag.sim)
+        if (ctag.sim === tag.sim) {
           tags.splice(i, 1);
+        }
       }
-      debug('After reset ' + JSON.stringify(tags));
+      debug('After reset', tags);
 
       asyncStorage.setItem('dataUsageTags', tags, function _done() {
         ConfigManager.setOption({ lastDataReset: now });
       });
     };
+
+    var wifiRequest = window.navigator.mozNetworkStats.getNetworkStats({
+      start: now,
+      end: now,
+      connectionType: 'wifi'
+    });
+    wifiRequest.onsuccess = function _onWiFiForToday() {
+      var data = wifiRequest.result.data;
+      debug('Data length should be 1 and it is', data.length);
+      var currentWifiUsage = 0;
+      if (data[0].rxBytes) {
+        currentWifiUsage += data[0].rxBytes;
+      }
+      if (data[0].txBytes) {
+        currentWifiUsage += data[0].txBytes;
+      }
+      ConfigManager.setOption({ wifiFixing: currentWifiUsage });
+    };
+
   });
 }
 
@@ -132,8 +190,9 @@ function getDataLimit(settings) {
 
 function formatTimeHTML(timestampA, timestampB) {
   // No interval
-  if (typeof timestampB === 'undefined')
+  if (typeof timestampB === 'undefined') {
     return '<time>' + formatTime(timestampA) + '</time>';
+  }
 
   // Same day case
   var dateA = new Date(timestampA);
@@ -148,4 +207,22 @@ function formatTimeHTML(timestampA, timestampB) {
   // Interval
   return '<time>' + formatTime(timestampA) + '</time> – ' +
          '<time>' + formatTime(timestampB) + '</time>';
+}
+
+function localizeWeekdaySelector(selector) {
+  var weekStartsOnMonday =
+    !!parseInt(navigator.mozL10n.get('weekStartsOnMonday'), 10);
+  debug('Week starts on monday?', weekStartsOnMonday);
+  var monday = selector.querySelector('.monday');
+  var sunday = selector.querySelector('.sunday');
+  var list = monday.parentNode;
+  if (weekStartsOnMonday) {
+    debug('Monday, Tuesday...');
+    list.insertBefore(monday, list.childNodes[0]); // monday is the first
+    list.appendChild(sunday); // sunday is the last
+  } else {
+    debug('Sunday, Monday...');
+    list.insertBefore(sunday, list.childNodes[0]); // sunday is the first
+    list.insertBefore(monday, sunday.nextSibling); // monday is the second
+  }
 }

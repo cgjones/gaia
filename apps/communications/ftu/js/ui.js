@@ -13,15 +13,33 @@ var UIManager = {
     'finish-screen',
     'nav-bar',
     'main-title',
+    // Unlock SIM Screen
+    'unlock-sim-screen',
+    'unlock-sim-header',
     // PIN Screen
     'pincode-screen',
+    'pin-label',
     'pin-input',
-    'fake-sim-pin',
+    'fake-pin-input',
     'pin-error',
-    'sim-import-button',
-    'sim-import-feedback',
     'skip-pin-button',
     'unlock-sim-button',
+    // PUK Screen
+    'pukcode-screen',
+    'puk-label',
+    'puk-input',
+    'puk-info',
+    'fake-puk-input',
+    'puk-error',
+    'newpin-input',
+    'fake-newpin-input',
+    'newpin-error',
+    'confirm-newpin-input',
+    'fake-confirm-newpin-input',
+    'confirm-newpin-error',
+    // Import contacts
+    'sim-import-button',
+    'no-sim',
     // Wifi
     'networks',
     'wifi-refresh-button',
@@ -41,11 +59,17 @@ var UIManager = {
     'skip-tutorial-button',
     // Privacy Settings
     'share-performance',
-    'offline-error-dialog'
+    'offline-error-dialog',
+    // Browser privacy newsletter subscription
+    'newsletter-form',
+    'newsletter-button',
+    'newsletter-input',
+    'newsletter-success-screen',
+    'offline-newsletter-error-dialog',
+    'invalid-email-error-dialog'
   ],
 
   init: function ui_init() {
-
     // Initialization of the DOM selectors
     this.domSelectors.forEach(function createElementRef(name) {
       this[toCamelCase(name)] = document.getElementById(name);
@@ -58,7 +82,15 @@ var UIManager = {
     this.dateConfigurationLabel.innerHTML = currentDate.
       toLocaleFormat('%Y-%m-%d');
     // Add events to DOM
-    this.fakeSimPin.addEventListener('input', this);
+    this.fakePinInput.addEventListener('keypress',
+                                       this.fakeInputValues.bind(this));
+    this.fakePukInput.addEventListener('keypress',
+                                       this.fakeInputValues.bind(this));
+    this.fakeNewpinInput.addEventListener('keypress',
+                                          this.fakeInputValues.bind(this));
+    this.fakeConfirmNewpinInput.addEventListener('keypress',
+                                              this.fakeInputValues.bind(this));
+
     this.simImportButton.addEventListener('click', this);
     this.skipPinButton.addEventListener('click', this);
     this.unlockSimButton.addEventListener('click', this);
@@ -71,16 +103,76 @@ var UIManager = {
 
     this.timeConfiguration.addEventListener('input', this);
     this.dateConfiguration.addEventListener('input', this);
-    // Initialize the timezone selector, see /shared/js/tz_select.js
-    var tzCont = document.getElementById('tz-continent');
-    var tzCity = document.getElementById('tz-city');
-    tzSelect(tzCont, tzCity, this.setTimeZone);
+    this.initTZ();
+
     // Prevent form submit in case something tries to send it
     this.timeForm.addEventListener('submit', function(event) {
       event.preventDefault();
     });
 
+    // Input scroll workaround
+    var top = this.newsletterInput.offsetTop;
+    this.newsletterInput.addEventListener('focus', function() {
+      window.addEventListener('resize', function resize() {
+        window.removeEventListener('resize', resize);
+        // Need to wait till resize is done
+        setTimeout(function() {
+          document.getElementById('browser_privacy').scrollTop = top;
+        }, 30);
+      });
+    });
+
+    // Browser privacy newsletter subscription
+    var basketCallback = function(err, data) {
+      utils.overlay.hide();
+      if (err || data.status !== 'ok') {
+        // We don't have any error numbers etc, so we are looking for
+        // 'email address' string in the error description.
+        if (err.desc.indexOf('email address') > -1) {
+          this.invalidEmailErrorDialog.classList.add('visible');
+        } else {
+          // Display 'no connection' dialog on error
+          this.offlineNewsletterErrorDialog.classList.add('visible');
+        }
+
+        return;
+      }
+      this.newsletterForm.classList.add('hidden');
+      this.newsletterSuccessScreen.classList.add('visible');
+    };
+
+    this.newsletterButton.addEventListener('click', function() {
+        if (WifiManager.isConnected || DataMobile.isDataAvailable) {
+          if (
+            this.newsletterInput.checkValidity() &&
+            this.newsletterInput.value.length > 0
+          ) {
+            utils.overlay.show(_('email-loading'), 'spinner');
+            Basket.send(this.newsletterInput.value, basketCallback.bind(this));
+          } else {
+            this.invalidEmailErrorDialog.classList.add('visible');
+          }
+        } else {
+          this.offlineNewsletterErrorDialog.classList.add('visible');
+        }
+    }.bind(this));
+
+    this.offlineNewsletterErrorDialog
+      .querySelector('button')
+      .addEventListener('click',
+        function offlineDialogClick() {
+          this.offlineNewsletterErrorDialog.classList.remove('visible');
+        }.bind(this));
+
+    this.invalidEmailErrorDialog
+      .querySelector('button')
+      .addEventListener('click',
+        function invalidEmailDialogClick() {
+          this.invalidEmailErrorDialog.classList.remove('visible');
+        }.bind(this));
+
     this.skipTutorialButton.addEventListener('click', function() {
+      WifiManager.finish();
       window.close();
     });
     this.letsGoButton.addEventListener('click', function() {
@@ -92,8 +184,32 @@ var UIManager = {
     // Enable sharing performance data (saving to settings)
     this.sharePerformance.addEventListener('click', this);
     var button = this.offlineErrorDialog.querySelector('button');
-    button.addEventListener('click', this.onOfflineDialogButtonClick.bind(this));
+    button.addEventListener('click',
+                            this.onOfflineDialogButtonClick.bind(this));
+  },
 
+  initTZ: function ui_initTZ() {
+    // Initialize the timezone selector, see /shared/js/tz_select.js
+    var tzRegion = document.getElementById('tz-region');
+    var tzCity = document.getElementById('tz-city');
+    tzSelect(tzRegion, tzCity, this.setTimeZone);
+  },
+
+  fakeInputValues: function ui_fakeInputValues(event) {
+    var fakeInput = event.target;
+    var code = event.charCode;
+    if (code === 0 || (code >= 0x30 && code <= 0x39)) {
+      var displayInput =
+              document.getElementById(fakeInput.id.substr(5, fakeInput.length));
+      var content = displayInput.value;
+      if (code === 0) { // backspace
+        content = content.substr(0, content.length - 1);
+      } else {
+        content += String.fromCharCode(code);
+      }
+      displayInput.value = content;
+    }
+    fakeInput.value = '';
   },
 
   handleEvent: function ui_handleEvent(event) {
@@ -103,14 +219,13 @@ var UIManager = {
         SimManager.skip();
         break;
       case 'unlock-sim-button':
+        Navigation.skipped = false;
         SimManager.unlock();
         break;
-      // workaround for a number-passsword input
-      case 'fake-sim-pin':
-        this.pinInput.value = this.fakeSimPin.value;
-        break;
       case 'sim-import-button':
-        SimManager.importContacts();
+        // Needed to give the browser the opportunity to properly refresh the UI
+        // Particularly the button toggling cycle (from inactive to active)
+        window.setTimeout(SimManager.importContacts, 0);
         break;
       // 3G
       case 'data-connection-switch':
@@ -197,7 +312,8 @@ var UIManager = {
     var currentTime = now.toLocaleFormat('%H:%M');
     var timeToSet = new Date(currentDate + 'T' + currentTime);
     TimeManager.set(timeToSet);
-    this.dateConfigurationLabel.innerHTML = timeToSet.toLocaleFormat('%Y-%m-%d');
+    this.dateConfigurationLabel.innerHTML =
+      timeToSet.toLocaleFormat('%Y-%m-%d');
   },
 
   setTime: function ui_st() {
@@ -228,16 +344,13 @@ var UIManager = {
       utc.replace(/[+:]/g, '');
     document.getElementById('time-zone-title').textContent =
       utc + ' ' + timezone.id;
-    document.getElementById('tz-continent-label').textContent =
-      timezone.id.replace(/\/.*$/, '');
+    document.getElementById('tz-region-label').textContent = timezone.region;
     document.getElementById('tz-city-label').textContent = timezone.city;
-    // it can take a few milliseconds before the TZ change is reflected on time
-    setTimeout(function updateTime() {
-      var f = new navigator.mozL10n.DateTimeFormat();
-      var now = new Date();
-      var timeLabel = document.getElementById('time-configuration-label');
-      timeLabel.innerHTML = f.localeFormat(now, _('shortTimeFormat'));
-    });
+
+    var f = new navigator.mozL10n.DateTimeFormat();
+    var now = new Date();
+    var timeLabel = document.getElementById('time-configuration-label');
+    timeLabel.innerHTML = f.localeFormat(now, _('shortTimeFormat'));
   },
 
   chooseNetwork: function ui_cn(event) {
@@ -323,7 +436,7 @@ var UIManager = {
         li.dataset.ssid = network.ssid;
         // Show authentication method
         var keys = network.capabilities;
-        if (network.connected) {
+        if (WifiManager.isConnectedTo(network)) {
           small.textContent = _('shortStatus-connected');
         } else {
           if (keys && keys.length) {
@@ -340,7 +453,11 @@ var UIManager = {
         li.appendChild(ssidp);
         li.appendChild(small);
         // Append to DOM
-        networksDOM.appendChild(li);
+        if (WifiManager.isConnectedTo(network)) {
+          networksDOM.insertBefore(li, networksDOM.firstChild);
+        } else {
+          networksDOM.appendChild(li);
+        }
       }
     }
   },
@@ -352,8 +469,11 @@ var UIManager = {
   },
 
   updateNetworkStatus: function uim_uns(ssid, status) {
+    if (!document.getElementById(ssid))
+      return;
+
     document.getElementById(ssid).
-      querySelector('p:last-child').innerHTML = status;
+      querySelector('p:last-child').innerHTML = _('shortStatus-' + status);
   },
 
   updateDataConnectionStatus: function uim_udcs(status) {

@@ -29,11 +29,13 @@ var CostControl = (function() {
     function setupCostControl() {
       costcontrol = {
         request: request,
+        isBalanceRequestSMS: isBalanceRequestSMS,
         getApplicationMode: getApplicationMode,
         getDataUsageWarning: function _getDataUsageWarning() {
           return 0.8;
         }
       };
+
       debug('Cost Control ready!');
       onready(costcontrol);
     }
@@ -44,14 +46,17 @@ var CostControl = (function() {
 
   var sms, connection, telephony, statistics;
   function loadAPIs() {
-    if ('mozSms' in window.navigator)
+    if ('mozSms' in window.navigator) {
       sms = window.navigator.mozSms;
+    }
 
-    if ('mozMobileConnection' in window.navigator)
+    if ('mozMobileConnection' in window.navigator) {
       connection = window.navigator.mozMobileConnection;
+    }
 
-    if ('mozNetworkStats' in window.navigator)
+    if ('mozNetworkStats' in window.navigator) {
       statistics = window.navigator.mozNetworkStats;
+    }
 
     debug('APIs loaded!');
   }
@@ -65,10 +70,17 @@ var CostControl = (function() {
     var simMNC = connection.iccInfo.mnc;
     var enabledNetworks = ConfigManager.configuration.enable_on;
     if (!(simMCC in enabledNetworks) ||
-        (enabledNetworks[simMCC].indexOf(simMNC) === -1))
+        (enabledNetworks[simMCC].indexOf(simMNC) === -1)) {
       return 'DATA_USAGE_ONLY';
+    }
 
     return settings.plantype.toUpperCase();
+  }
+
+  // Check if a SMS matches the form of a balance request
+  function isBalanceRequestSMS(sms, configuration) {
+    return sms.body === configuration.balance.text &&
+           sms.receiver === configuration.balance.destination;
   }
 
   // Perform a request. They must be specified via a request object with:
@@ -80,7 +92,7 @@ var CostControl = (function() {
   // specific handler.
   function request(requestObj, callback) {
     ConfigManager.requestAll(function _onInfo(configuration, settings) {
-      debug('Request for: ' + requestObj.type);
+      debug('Request for:', requestObj.type);
 
       var force = requestObj.force;
       var result = {};
@@ -96,7 +108,9 @@ var CostControl = (function() {
             result.status = 'error';
             result.details = issues;
             result.data = settings.lastBalance;
-            callback(result);
+            if (callback) {
+              callback(result);
+            }
             return;
           }
 
@@ -105,7 +119,9 @@ var CostControl = (function() {
             result.status = 'error';
             result.details = costIssues;
             result.data = settings.lastBalance;
-            callback(result);
+            if (callback) {
+              callback(result);
+            }
             return;
           }
 
@@ -116,7 +132,9 @@ var CostControl = (function() {
           if (isWaiting && !timeout && !force) {
             result.status = 'in_progress';
             result.data = settings.lastBalance;
-            callback(result);
+            if (callback) {
+              callback(result);
+            }
             return;
           }
 
@@ -131,7 +149,9 @@ var CostControl = (function() {
             result.status = 'error';
             result.details = issues;
             result.data = settings.lastDataUsage;
-            callback(result);
+            if (callback) {
+              callback(result);
+            }
             return;
           }
 
@@ -140,7 +160,9 @@ var CostControl = (function() {
             result.status = 'error';
             result.details = costIssues;
             result.data = settings.lastBalance;
-            callback(result);
+            if (callback) {
+              callback(result);
+            }
             return;
           }
 
@@ -151,7 +173,9 @@ var CostControl = (function() {
           if (isWaiting && !timeout && !force) {
             result.status = 'in_progress';
             result.data = settings.lastDataUsage;
-            callback(result);
+            if (callback) {
+              callback(result);
+            }
             return;
           }
 
@@ -169,41 +193,60 @@ var CostControl = (function() {
           // Can not fail: only dispatch
           result.data = settings.lastTelephonyActivity;
           result.status = 'success';
-          callback(result);
+          if (callback) {
+            callback(result);
+          }
           break;
       }
       return;
     });
   }
 
+  var airplaneMode = false;
+  SettingsListener.observe('ril.radio.disabled', false,
+    function _onValue(value) {
+      airplaneMode = value;
+    }
+  );
+
   // Check service status and return the most representative issue if there is
   function getServiceIssues(settings) {
-    if (!connection || !connection.voice || !connection.data)
+    if (airplaneMode) {
+      return 'airplane_mode';
+    }
+
+    if (!connection || !connection.voice || !connection.data) {
       return 'no_service';
+    }
 
     var mode = getApplicationMode(settings);
-    if (mode !== 'PREPAID')
+    if (mode !== 'PREPAID') {
       return 'no_service';
+    }
 
     var data = connection.data;
-    if (!data.network.shortName && !data.network.longName)
+    if (!data.network.shortName && !data.network.longName) {
       return 'no_service';
+    }
 
     var voice = connection.voice;
-    if (voice.signalStrength === null)
+    if (voice.signalStrength === null) {
       return 'no_coverage';
+    }
 
     return '';
   }
 
   // Check cost issues and return
   function getCostIssues(configuration) {
-    var inRoaming = connection.voice.roamin;
-    if (inRoaming && !configuration.is_roaming_free)
+    var inRoaming = connection.voice.roaming;
+    if (inRoaming && configuration.is_roaming_free !== true) {
       return 'non_free_in_roaming';
+    }
 
-    if (!inRoaming && !configuration.is_free)
+    if (!inRoaming && configuration.is_free !== true) {
       return 'non_free';
+    }
 
     return '';
   }
@@ -228,8 +271,7 @@ var CostControl = (function() {
 
       newAlarm.onsuccess = function _alarmSet(evt) {
         var id = evt.target.result;
-        debug('Timeout for balance (' + id +
-              ') update set to: ' + BALANCE_TIMEOUT);
+        debug('Timeout for balance (', id, ') update set to:', BALANCE_TIMEOUT);
 
         ConfigManager.setOption(
           {
@@ -238,7 +280,9 @@ var CostControl = (function() {
           },
           function _onSet() {
             result.status = 'success';
-            callback(result);
+            if (callback) {
+              callback(result);
+            }
           }
         );
       };
@@ -247,7 +291,9 @@ var CostControl = (function() {
         debug('Failed to set timeout for balance request!');
         result.status = 'error';
         result.details = 'timout_fail';
-        callback(result);
+        if (callback) {
+          callback(result);
+        }
       };
     };
 
@@ -255,7 +301,9 @@ var CostControl = (function() {
       debug('Request SMS failed! But returning stored balance.');
       result.status = 'error';
       result.details = 'request_fail';
-      callback(result);
+      if (callback) {
+        callback(result);
+      }
     };
 
     debug('Balance out of date. Requesting fresh data...');
@@ -264,7 +312,7 @@ var CostControl = (function() {
   // Send a top up SMS and set timeouts for interrupting waiting for response
   var TOPUP_TIMEOUT = 5 * 60 * 1000; // Should be 5 min
   function requestTopUp(configuration, settings, code, callback, result) {
-    debug('Requesting TopUp with code ' + code + '...');
+    debug('Requesting TopUp with code', code, '...');
 
     // TODO: Ensure is free
     var newSMS = sms.send(
@@ -280,8 +328,7 @@ var CostControl = (function() {
 
       newAlarm.onsuccess = function _alarmSet(evt) {
         var id = evt.target.result;
-        debug('Timeout for TopUp (' + id +
-              ') update set to: ' + TOPUP_TIMEOUT);
+        debug('Timeout for TopUp (', id, ') update set to:', TOPUP_TIMEOUT);
 
         // XXX: waitingForTopUp can be null if no waiting or distinct
         // than null to indicate the unique id of the timeout waiting
@@ -293,7 +340,9 @@ var CostControl = (function() {
           },
           function _onSet() {
             result.status = 'success';
-            callback(result);
+            if (callback) {
+              callback(result);
+            }
           }
         );
       };
@@ -302,7 +351,9 @@ var CostControl = (function() {
         debug('Failed to set timeout for TopUp request!');
         result.status = 'error';
         result.details = 'timeout_fail';
-        callback(result);
+        if (callback) {
+          callback(result);
+        }
       };
     };
 
@@ -310,7 +361,9 @@ var CostControl = (function() {
       debug('TopUp SMS failed!');
       result.status = 'error';
       result.details = 'request_fail';
-      callback(result);
+      if (callback) {
+        callback(result);
+      }
     };
   }
 
@@ -321,9 +374,9 @@ var CostControl = (function() {
     debug('Statistics out of date. Requesting fresh data...');
 
     // If settings.lastDataReset is not set let's use the past week. This is
-    // only for not breaking dogfooders build and this can be remove at some point
-    // in the future (and since this sentence has been said multiple times this
-    // code will probably stay here for a while).
+    // only for not breaking dogfooders build and this can be remove at some
+    // point in the future (and since this sentence has been said multiple times
+    // this code will probably stay here for a while).
     var start = toMidnight(new Date(settings.lastDataReset ||
                                     Date.now() - 7 * DAY));
 
@@ -357,10 +410,13 @@ var CostControl = (function() {
 
         // Finally, store the result and continue
         mobileRequest.onsuccess = function _onMobileData() {
-          var wifiData = adaptData(wifiRequest.result);
-          debug('WIFI: ' + JSON.stringify(wifiData));
+          var fakeTag = {
+            sim: connection.iccInfo.iccid,
+            start: settings.lastDataReset,
+            fixing: [[settings.lastDataReset, settings.wifiFixing || 0]]
+          };
+          var wifiData = adaptData(wifiRequest.result, [fakeTag]);
           var mobileData = adaptData(mobileRequest.result, tags);
-          debug('MOBILE: ' + JSON.stringify(mobileData));
           var lastDataUsage = {
             timestamp: new Date() ,
             start: start,
@@ -375,7 +431,7 @@ var CostControl = (function() {
           };
           ConfigManager.setOption({ 'lastDataUsage': lastDataUsage },
             function _onSetItem() {
-              debug('Statistics up to date and stored');
+              debug('Statistics up to date and stored.');
             }
           );
           // XXX: Enrich with the samples because I can not store them
@@ -384,7 +440,9 @@ var CostControl = (function() {
           result.status = 'success';
           result.data = lastDataUsage;
           debug('Returning up to date statistics.');
-          callback(result);
+          if (callback) {
+            callback(result);
+          }
         };
       };
 
@@ -397,19 +455,22 @@ var CostControl = (function() {
     var output = [];
     var totalData, accum = 0;
     for (var i = 0, item; item = data[i]; i++) {
-      debug('Tag: ' + JSON.stringify(item));
       totalData = 0;
-      if (item.rxBytes)
+      if (item.rxBytes) {
         totalData += item.rxBytes;
-      if (item.txBytes)
+      }
+      if (item.txBytes) {
         totalData += item.txBytes;
+      }
 
       var usage = totalData;
-      if (tags)
+      if (tags) {
         usage = MindGap.getUsage(tags, totalData, item.date);
+      }
 
-      if (usage === undefined)
+      if (usage === undefined) {
         continue;
+      }
 
       accum += usage;
 

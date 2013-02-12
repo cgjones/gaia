@@ -11,32 +11,61 @@ var CostControlApp = (function() {
 
   'use strict';
 
-  var costcontrol, initialized = false;
-  window.addEventListener('DOMContentLoaded', function _onDOMReady() {
-    checkSIMChange();
+  // XXX: This is the point of entry, check common.js for more info
+  waitForDOMAndMessageHandler(window, onReady);
 
-    CostControl.getInstance(function _onCostControlReady(instance) {
-      if (ConfigManager.option('fte')) {
-        window.location = '/fte.html';
-        return;
-      }
-      costcontrol = instance;
-      setupApp();
+  var vmanager;
+  var costcontrol, initialized = false;
+  function onReady() {
+    vmanager = new ViewManager();
+    var mobileConnection = window.navigator.mozMobileConnection;
+
+    // SIM is absent
+    if (mobileConnection.cardState === 'absent') {
+      debug('There is no SIM');
+      document.getElementById('no-sim-info-dialog')
+        .addEventListener('click', function _close() {
+        window.close();
+      });
+      vmanager.changeViewTo('no-sim-info-dialog');
+
+    // SIM is not ready
+    } else if (mobileConnection.cardState !== 'ready') {
+      debug('SIM not ready:', mobileConnection.cardState);
+      mobileConnection.oniccinfochange = onReady;
+
+    // SIM is ready
+    } else {
+      mobileConnection.oniccinfochange = undefined;
+      startApp();
+    }
+  }
+
+  function startApp() {
+    checkSIMChange(function _onSIMChecked() {
+      CostControl.getInstance(function _onCostControlReady(instance) {
+        if (ConfigManager.option('fte')) {
+          window.location = '/fte.html';
+          return;
+        }
+        costcontrol = instance;
+        setupApp();
+      });
     });
-  });
+  }
 
   window.addEventListener('localized', function _onLocalize() {
-    if (initialized)
+    if (initialized) {
       updateUI();
+    }
   });
 
-  var tabmanager, vmanager, settingsVManager;
+  var tabmanager, settingsVManager;
   function setupApp() {
     // View managers for dialogs and settings
     tabmanager = new ViewManager(
       ['balance-tab', 'telephony-tab', 'datausage-tab']
     );
-    vmanager = new ViewManager();
     settingsVManager = new ViewManager();
 
     // Configure settings
@@ -64,7 +93,7 @@ var CostControlApp = (function() {
       });
     });
 
-    // Handle open sent by the user via the widget
+    // Handle 'open activity' sent by the user via the widget
     navigator.mozSetMessageHandler('activity',
       function _handleActivity(activityRequest) {
         var name = activityRequest.source.name;
@@ -82,18 +111,52 @@ var CostControlApp = (function() {
       }
     );
 
+    // When a notification is received
+    window.navigator.mozSetMessageHandler('notification',
+      function _onNotification(notification) {
+        if (!notification.clicked) {
+          return;
+        }
+
+        debug('Notification was clicked!');
+
+        navigator.mozApps.getSelf().onsuccess = function _onAppReady(evt) {
+          var app = evt.target.result;
+          app.launch();
+
+          var type = notification.imageURL.split('?')[1];
+          debug('Notification type:', type);
+          handleNotification(type);
+        };
+      }
+    );
+
     updateUI();
     ConfigManager.observe('plantype', updateUI, true);
 
     initialized = true;
   }
 
+  function handleNotification(type) {
+    switch (type) {
+      case 'topUpError':
+        BalanceTab.topUpWithCode(true);
+        break;
+      case 'lowBalance':
+      case 'zeroBalance':
+        tabmanager.changeViewTo('balance-tab');
+        break;
+      case 'dataUsage':
+        tabmanager.changeViewTo('datausage-tab');
+        break;
+    }
+  }
 
   var currentMode;
   function updateUI() {
     ConfigManager.requestSettings(function _onSettings(settings) {
       var mode = costcontrol.getApplicationMode(settings);
-      debug('App UI mode: ' + mode);
+      debug('App UI mode: ', mode);
 
       // Layout
       if (mode !== currentMode) {
@@ -101,10 +164,10 @@ var CostControlApp = (function() {
 
         // Initialize on demand
         DataUsageTab.initialize(tabmanager);
-        if (mode === 'PREPAID')
+        if (mode === 'PREPAID') {
           TelephonyTab.finalize();
           BalanceTab.initialize(tabmanager, vmanager);
-        if (mode === 'POSTPAID') {
+        } else if (mode === 'POSTPAID') {
           BalanceTab.finalize();
           TelephonyTab.initialize(tabmanager);
         }
@@ -128,13 +191,23 @@ var CostControlApp = (function() {
 
           // If it was showing the left tab, force changing to the
           // proper left view
-          if (tabmanager.getCurrentTab() !== 'datausage-tab')
+          if (tabmanager.getCurrentTab() !== 'datausage-tab') {
             tabmanager.changeViewTo(mode === 'PREPAID' ? 'balance-tab' :
                                                          'telephony-tab');
+          }
         }
 
       }
     });
   }
+
+  return {
+    showBalanceTab: function _showBalanceTab() {
+      tabmanager.changeViewTo('balance-tab');
+    },
+    showDataUsageTab: function _showDataUsageTab() {
+      tabmanager.changeViewTo('datausage-tab');
+    }
+  };
 
 }());

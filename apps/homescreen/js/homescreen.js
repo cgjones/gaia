@@ -7,31 +7,69 @@ const Homescreen = (function() {
     document.location.host.replace(/(^[\w\d]+.)?([\w\d]+.[a-z]+)/, '$2');
   var _ = navigator.mozL10n.get;
   setLocale();
-  window.addEventListener('localized', function localize() {
+  navigator.mozL10n.ready(function localize() {
     setLocale();
     GridManager.localize();
   });
 
+  var initialized = false, landingPage;
+
   // Initialize the various components.
   PaginationBar.init('.paginationScroller');
-  GridManager.init('.apps', '.dockWrapper', function gm_init() {
-    PaginationBar.show();
-    GridManager.goToPage(1);
-    DragDropManager.init();
-    Wallpaper.init();
-  });
 
-  window.addEventListener('hashchange', function() {
-    if (document.location.hash != '#root')
+  function initialize(lPage) {
+    if (initialized) {
       return;
+    }
 
-    if (Homescreen.isInEditMode()) {
-      Homescreen.setMode('normal');
-      GridManager.markDirtyState();
-      ConfirmDialog.hide();
-      GridManager.goToPage(GridManager.pageHelper.getCurrentPageNumber());
-    } else {
-      GridManager.goToPage(1);
+    initialized = true;
+    landingPage = lPage;
+
+    window.addEventListener('hashchange', function() {
+      if (document.location.hash != '#root')
+        return;
+
+      if (Homescreen.isInEditMode()) {
+        exitFromEditMode();
+      } else {
+        GridManager.goToPage(landingPage);
+      }
+    });
+
+    var tapThreshold = Configurator.getSection('tap_threshold');
+    if (typeof(tapThreshold) === 'undefined') {
+      tapThreshold = 10;
+    }
+
+    GridManager.init('.apps', '.dockWrapper', tapThreshold, function gm_init() {
+      PaginationBar.show();
+      if (document.location.hash === '#root') {
+        // Switch to the first page only if the user has not already start to pan
+        // while home is loading
+        GridManager.goToPage(landingPage);
+      }
+      DragDropManager.init();
+      Wallpaper.init();
+    });
+  }
+
+  function exitFromEditMode() {
+    Homescreen.setMode('normal');
+    GridManager.markDirtyState();
+    ConfirmDialog.hide();
+    GridManager.goToPage(GridManager.pageHelper.getCurrentPageNumber());
+  }
+
+  document.addEventListener('mozvisibilitychange', function mozVisChange() {
+    if (document.mozHidden && Homescreen.isInEditMode()) {
+      exitFromEditMode();
+    }
+
+    if (document.mozHidden == false) {
+      setTimeout(function forceRepaint() {
+        var helper = document.getElementById('repaint-helper');
+        helper.classList.toggle('displayed');
+      });
     }
   });
 
@@ -70,7 +108,11 @@ const Homescreen = (function() {
       var confirm = {
         callback: function onAccept() {
           ConfirmDialog.hide();
-          app.uninstall();
+          if (app.isBookmark) {
+            app.uninstall();
+          } else {
+            navigator.mozApps.mgmt.uninstall(app);
+          }
         },
         applyClass: 'danger'
       };
@@ -96,6 +138,8 @@ const Homescreen = (function() {
     isInEditMode: function() {
       return mode === 'edit';
     },
+
+    init: initialize,
 
     setMode: function(newMode) {
       mode = document.body.dataset.mode = newMode;

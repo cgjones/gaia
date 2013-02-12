@@ -14,26 +14,29 @@
     <script type="text/javascript" src="shared/js/l10n.js"></script>
     <script type="text/javascript" src="shared/js/l10n_date.js"></script>
     <script type="text/javascript" defer src="shared/js/manifest_helper.js"></script>
+    <script type="text/javascript" src="shared/js/settings_listener.js"></script>
 
     <link rel="stylesheet" type="text/css" href="shared/style_unstable/progress_activity.css">
     <link rel="stylesheet" type="text/css" href="shared/style/buttons.css">
     <link rel="stylesheet" type="text/css" href="shared/style/headers.css">
     <link rel="stylesheet" type="text/css" href="shared/style/confirm.css">
+    <link rel="stylesheet" type="text/css" href="shared/style/status.css">
     <link rel="stylesheet" type="text/css" href="style/request.css">
 
     <!-- Specific code -->
     <script type="text/javascript" defer src="js/message.js"></script>
+    <script type="text/javascript" defer src="js/landing.js"></script>
     <script type="text/javascript" defer src="js/request.js"></script>
     <script type="text/javascript" defer src="js/bookmark.js"></script>
     <script type="text/javascript" defer src="js/state.js"></script>
     <script type="text/javascript" defer src="js/page.js"></script>
     <script type="text/javascript" defer src="js/pagbar.js"></script>
     <script type="text/javascript" defer src="js/dock.js"></script>
-    <script type="text/javascript" defer src="js/landing.js"></script>
     <script type="text/javascript" defer src="js/grid.js"></script>
     <script type="text/javascript" defer src="js/dragdrop.js"></script>
     <script type="text/javascript" defer src="everything.me/js/everything.me.js"></script>
     <script type="text/javascript" defer src="js/homescreen.js"></script>
+    <script type="text/javascript" defer src="js/configurator.js"></script>
     <script type="text/javascript" defer src="js/wallpaper.js"></script>
     <script type="text/javascript" defer src="js/hiddenapps.js"></script>
 
@@ -44,6 +47,13 @@
   <body data-mode="normal">
     <div id="search-overlay"></div>
     <div id="landing-overlay"></div>
+    <!-- This markup is just to detect text overflow with app names
+         because of pages are hidden after rendering -->
+    <div id="fake-icon">
+      <span id="fake-icon-name-wrapper" class="labelWrapper">
+        <span id="fake-icon-name"></span>
+      </span>
+    </div>
 
     <section id="confirm-dialog">
       <form role="dialog" data-type="confirm">
@@ -63,17 +73,16 @@
     </header>
 
     <div id="icongrid" class="apps" role="main">
-      <div class="page" id="evmePage">
-          <article id="loading-overlay">
-            <section class="loading-container">
-              <header class="loading-header" data-l10n-id="loadingEvme2">
-                Loading&hellip;
-              </header>
+      <div class="page" id="evmePage" role="search-page">
+          <form id="loading-overlay" role="dialog" data-type="confirm">
+            <section>
+              <h1 data-l10n-id="loadingEvme2">Loading&hellip;</h1>
               <p role="status">
-                <progress class="loading-icon frozen small"></progress>
+                <span>0%</span>
+                <progress value="0" max="100"></progress>
               </p>
             </section>
-          </article>
+          </form>
           <div id="evmeContainer">
             <div id="search" class="active">
                 <div id="search-header">
@@ -109,6 +118,7 @@
                 </div>
                 <div id="shortcuts-loading"></div>
             </div>
+            <section id="evmeBanner" role="status"></section>
           </div>
       </div>
       <div id="landing-page" data-current-page="true">
@@ -125,5 +135,6 @@
     <footer id="footer">
       <div class="dockWrapper"></div>
     </footer>
+    <div id="repaint-helper"></div>
   </body>
 </html>
