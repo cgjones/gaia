@@ -22,7 +22,9 @@
     "time":{},
     "desktop-notification":{},
     "power":{},
-    "telephony":{}
+    "idle":{},
+    "telephony":{},
+    "audio-channel-notification":{}
   },
   "activities": {
     "configure": {

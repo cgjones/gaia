@@ -24,11 +24,9 @@ if (!fb.link) {
     // The uid of the friend to be linked
     var friendUidToLink;
 
-    var linkProposalElement = document.querySelector('#linkProposal');
-
     // Base query to search for contacts
     var SEARCH_QUERY = ['SELECT uid, name, email from user ',
-    ' WHERE uid IN (SELECT uid1 FROM friend WHERE uid2=me() ORDER BY rank) ',
+    ' WHERE uid IN (SELECT uid1 FROM friend WHERE uid2=me()) ',
     ' AND (', null, ')', ' ORDER BY name'
     ];
 
@@ -270,14 +268,21 @@ if (!fb.link) {
           viewButton.onclick = UI.viewAllFriends;
         }
 
-        linkProposalElement.textContent = _('linkProposal', {
-          numFriends: numFriendsProposed
-        });
-
         utils.templates.append('#friends-list', currentRecommendation);
         imgLoader.reload();
 
-        Curtain.hide(sendReadyEvent);
+        Curtain.hide(function onCurtainHide() {
+          sendReadyEvent();
+          window.addEventListener('message', function linkOnViewPort(e) {
+            var data = e.data;
+            if (data && data.type === 'dom_transition_end') {
+              window.removeEventListener('message', linkOnViewPort);
+              utils.status.show(_('linkProposal', {
+                numFriends: numFriendsProposed
+              }));
+            }
+          });
+        });
       }
     };
 
@@ -460,10 +465,10 @@ if (!fb.link) {
                                   "li:not([data-uuid='#uid#'])");
 
       if (!acc_tk) {
-        fb.oauth.getAccessToken(function proposal_new_token(new_acc_tk) {
+        oauth2.getAccessToken(function proposal_new_token(new_acc_tk) {
           access_token = new_acc_tk;
           link.getProposal(contactId, new_acc_tk);
-        }, 'proposal');
+        }, 'proposal', 'facebook');
       }
       else {
         link.getProposal(contactId, acc_tk);
