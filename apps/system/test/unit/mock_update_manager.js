@@ -1,8 +1,12 @@
 'use strict';
 
 var MockUpdateManager = {
+  _dataConnectionWarningEnabled: true,
+  _startedDownloadUsingDataConnection: false,
+
   addToUpdatesQueue: function mum_addtoUpdateQueue(updatable) {
     this.mLastUpdatesAdd = updatable;
+    this.mUpdates.push(updatable);
   },
   addToUpdatableApps: function mum_addToUpdatableApps(updatable) {
     this.mLastUpdatableAdd = updatable;
@@ -10,15 +14,28 @@ var MockUpdateManager = {
 
   removeFromUpdatesQueue: function mum_removeFromUpdateQueue(updatable) {
     this.mLastUpdatesRemoval = updatable;
+    var index = this.mUpdates.indexOf(updatable);
+    if (index >= 0) {
+      this.mUpdates.splice(index, 1);
+    }
   },
 
   addToDownloadsQueue: function mum_addtoActiveDownloads(updatable) {
     this.mLastDownloadsAdd = updatable;
+    this.mDownloads.push(updatable);
   },
   removeFromDownloadsQueue:
     function mum_removeFromActiveDownloads(updatable) {
 
     this.mLastDownloadsRemoval = updatable;
+    var index = this.mDownloads.indexOf(updatable);
+    if (index >= 0) {
+      this.mDownloads.splice(index, 1);
+    }
+  },
+
+  downloaded: function mum_downloaded(updatable) {
+    this.mDownloadedCalled = true;
   },
 
   downloadProgressed: function mum_downloadProgressed(bytes) {
@@ -38,6 +55,8 @@ var MockUpdateManager = {
   },
 
   mErrorBannerRequested: false,
+  mUpdates: [],
+  mDownloads: [],
   mLastUpdatesAdd: null,
   mLastUpdatableAdd: null,
   mLastUpdatesRemoval: null,
@@ -46,7 +65,11 @@ var MockUpdateManager = {
   mProgressCalledWith: null,
   mCheckForUpdatesCalledWith: null,
   mStartedUncompressingCalled: false,
+  mDownloadedCalled: false,
   mTeardown: function mum_mTeardown() {
+    this._dataConnectionWarningEnabled = true;
+    this._startedDownloadUsingDataConnection = false;
+
     this.mErrorBannerRequested = false;
     this.mLastUpdatesAdd = null;
     this.mLastUpdatableAdd = null;
@@ -56,5 +79,8 @@ var MockUpdateManager = {
     this.mProgressCalledWith = null;
     this.mCheckForUpdatesCalledWith = null;
     this.mStartedUncompressingCalled = false;
+    this.mDownloadedCalled = false;
+    this.mUpdates = [];
+    this.mDownloads = [];
   }
 };
